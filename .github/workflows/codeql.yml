@@ -1,0 +1,49 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "30 9 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    # Default setup's autobuild only compiled the Core package, so App/ —
+    # the AX, clipboard, and event-tap code — was never analyzed. Manual
+    # build mode compiles the app target, which pulls in Core too.
+    name: Analyze (swift)
+    runs-on: macos-26
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # Tool install stays above init so the CodeQL trace window contains
+      # only the app build — a source-built xcodegen would otherwise be
+      # extracted into the database alongside Pewter's own code.
+      - name: Install tools
+        run: |
+          brew untap aws/tap || true
+          brew install xcodegen
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: swift
+          build-mode: manual
+          queries: security-extended
+
+      - name: Build app
+        run: |
+          xcodegen generate
+          xcodebuild -project Pewter.xcodeproj -scheme Pewter -configuration Debug CODE_SIGNING_ALLOWED=NO build
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:swift"
