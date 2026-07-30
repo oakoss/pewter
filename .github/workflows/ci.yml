@@ -5,16 +5,25 @@ on:
     branches: [main]
   pull_request:
 
+# The default token is write-scoped org-wide; with read-only permissions a
+# compromised dep in any job can't post a forged "CI Summary" status.
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     # macos-15 ships Xcode 16.4, whose Swift still gates `isolated deinit`
     # behind an experimental flag; the app needs an Xcode 26 toolchain.
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install tools
-        run: brew install xcodegen swiftformat
+        # The runner image ships with aws/tap pre-tapped; Homebrew's tap-trust
+        # check warns about it on every brew call. We use nothing from it.
+        run: |
+          brew untap aws/tap || true
+          brew install xcodegen swiftformat
 
       - name: Lint
         run: swiftformat --lint .
@@ -32,3 +41,27 @@ jobs:
         run: >
           xcodebuild -project Pewter.xcodeproj -scheme Pewter
           -configuration Debug CODE_SIGNING_ALLOWED=NO build
+
+  # Fan-in gate: the one required status check, so the branch ruleset never
+  # names individual jobs. Every job in this workflow must be listed in
+  # `needs` — an omitted job is invisible to the gate.
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    # always(), not !cancelled(): a skipped required check counts as
+    # satisfied, so cancellation must yield a red X here, not a skip.
+    if: always()
+    needs: [build-and-test]
+    steps:
+      - name: Summarize results
+        run: |
+          echo "## CI Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Job | Status | Required |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| --- | --- | --- |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Build and test | \`${{ needs.build-and-test.result }}\` | ✅ Yes |" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = "true" ]; then
+            echo "One or more required jobs did not succeed: ${{ join(needs.*.result, ', ') }}"
+            exit 1
+          fi
