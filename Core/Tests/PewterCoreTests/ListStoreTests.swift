@@ -1,5 +1,5 @@
 import Foundation
-@testable import SmartListCore
+@testable import PewterCore
 import Testing
 
 @MainActor
@@ -44,7 +44,7 @@ struct ListStoreTests {
 
     @Test func mutationsPersistThroughStorage() {
         let url = FileManager.default.temporaryDirectory
-            .appending(path: "smart-list-store-tests-\(UUID().uuidString)/notes.md")
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let store = ListStore.loadFrom(storage: FileStorage(fileURL: url, debounceInterval: 0.05))
@@ -57,7 +57,7 @@ struct ListStoreTests {
 
     @Test func externalEditReloadsStore() async throws {
         let url = FileManager.default.temporaryDirectory
-            .appending(path: "smart-list-store-tests-\(UUID().uuidString)/notes.md")
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let storage = FileStorage(fileURL: url)

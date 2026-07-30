@@ -8,7 +8,7 @@ import os
 /// double-tap gesture.
 @MainActor
 final class ChordHotKeyMonitor {
-    private static let logger = Logger(subsystem: "com.oakoss.SmartList", category: "capture")
+    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "capture")
 
     var onHotKey: (() -> Void)?
 

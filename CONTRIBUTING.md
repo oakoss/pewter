@@ -1,11 +1,11 @@
-# Contributing to smart-list
+# Contributing to Pewter
 
 ## Setup
 
 ```sh
 mise install            # xcodegen, swiftformat, lefthook, markdownlint-cli2, commitlint, czg
 lefthook install        # git hooks: format/lint on commit, commit-msg lint, tests on push
-make gen                # generate SmartList.xcodeproj
+make gen                # generate Pewter.xcodeproj
 make build              # CLI build into build/
 make test               # Core package unit tests
 make run                # build + launch
@@ -50,7 +50,7 @@ Things that will bite you:
    <https://www.apple.com/certificateauthority/> and add it to your login
    keychain.
 2. **Unwedge a stale grant** with
-   `tccutil reset Accessibility com.oakoss.SmartList`, then re-grant.
+   `tccutil reset Accessibility com.oakoss.Pewter`, then re-grant.
 3. **Run from a stable path.** `make run` uses a fixed derived-data path
    (`build/`) so TCC doesn't accumulate entries for changing locations.
 4. **Global monitors registered before the grant never fire** — no error,

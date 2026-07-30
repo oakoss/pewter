@@ -28,5 +28,5 @@ jobs:
 
       - name: Build app
         run: >
-          xcodebuild -project SmartList.xcodeproj -scheme SmartList
+          xcodebuild -project Pewter.xcodeproj -scheme Pewter
           -configuration Debug CODE_SIGNING_ALLOWED=NO build

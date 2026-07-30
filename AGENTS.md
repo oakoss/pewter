@@ -5,7 +5,7 @@ Single source of agent instructions for this repo; `CLAUDE.md` imports it.
 ## Build & Test
 
 ```bash
-make gen      # regenerate SmartList.xcodeproj from project.yml (xcodegen)
+make gen      # regenerate Pewter.xcodeproj from project.yml (xcodegen)
 make build    # build the app (pass-through signing via Makefile.local)
 make test     # Core unit tests: swift test --package-path Core
 make format   # swiftformat
@@ -21,7 +21,7 @@ feeds czg's prompt, not the linter. Pre-push runs the Core tests.
 
 ## Architecture Overview
 
-- `Core/` — SwiftPM package `SmartListCore`: all testable logic, no AppKit.
+- `Core/` — SwiftPM package `PewterCore`: all testable logic, no AppKit.
   Item model, markdown parse/serialize, file storage with self-protection,
   capture orchestration, tap-detection state machine.
 - `App/` — thin AppKit/SwiftUI shell: non-activating floating panel, status

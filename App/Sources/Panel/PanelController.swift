@@ -4,7 +4,7 @@ import SwiftUI
 
 @MainActor
 final class PanelController {
-    private static let logger = Logger(subsystem: "com.oakoss.SmartList", category: "panel")
+    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "panel")
 
     private let panel: FloatingPanel
 
@@ -20,7 +20,7 @@ final class PanelController {
         // sizingOptions = [] also drops the SwiftUI minSize propagation;
         // without an explicit floor the panel can be dragged unusably small.
         panel.contentMinSize = NSSize(width: 320, height: 360)
-        panel.setFrameAutosaveName("SmartListPanel")
+        panel.setFrameAutosaveName("PewterPanel")
     }
 
     var isVisible: Bool {
@@ -50,7 +50,7 @@ final class PanelController {
 
         // Anchor under the status item only when there's no saved frame —
         // once the user drags the panel, their position wins.
-        let hasSavedFrame = UserDefaults.standard.string(forKey: "NSWindow Frame SmartListPanel") != nil
+        let hasSavedFrame = UserDefaults.standard.string(forKey: "NSWindow Frame PewterPanel") != nil
         if !hasSavedFrame, let button = statusButton, let buttonWindow = button.window {
             let buttonFrame = buttonWindow.frame
             let origin = NSPoint(

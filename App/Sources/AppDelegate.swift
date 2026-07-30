@@ -1,5 +1,5 @@
 import AppKit
-import SmartListCore
+import PewterCore
 import SwiftUI
 
 @MainActor

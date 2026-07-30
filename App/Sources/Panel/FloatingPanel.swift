@@ -15,7 +15,7 @@ final class FloatingPanel: NSPanel {
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         // Visually hidden, but VoiceOver announces the window by it.
-        title = "smart-list"
+        title = "Pewter"
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
         isMovableByWindowBackground = true

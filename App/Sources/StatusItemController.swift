@@ -27,7 +27,7 @@ final class StatusItemController: NSObject {
         if let button = statusItem.button {
             button.image = NSImage(
                 systemSymbolName: "checklist",
-                accessibilityDescription: "smart-list"
+                accessibilityDescription: "Pewter"
             )
             button.target = self
             button.action = #selector(handleClick)
@@ -50,7 +50,7 @@ final class StatusItemController: NSObject {
         flashTask = Task {
             try? await Task.sleep(for: .seconds(duration))
             guard !Task.isCancelled else { return }
-            button.image = NSImage(systemSymbolName: "checklist", accessibilityDescription: "smart-list")
+            button.image = NSImage(systemSymbolName: "checklist", accessibilityDescription: "Pewter")
         }
     }
 
@@ -111,7 +111,7 @@ final class StatusItemController: NSObject {
         menu.addItem(.separator())
 
         let quit = NSMenuItem(
-            title: "Quit smart-list",
+            title: "Quit Pewter",
             action: #selector(NSApplication.terminate(_:)),
             keyEquivalent: "q"
         )

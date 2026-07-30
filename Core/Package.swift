@@ -2,13 +2,13 @@
 import PackageDescription
 
 let package = Package(
-    name: "SmartListCore",
+    name: "PewterCore",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "SmartListCore", targets: ["SmartListCore"]),
+        .library(name: "PewterCore", targets: ["PewterCore"]),
     ],
     targets: [
-        .target(name: "SmartListCore"),
-        .testTarget(name: "SmartListCoreTests", dependencies: ["SmartListCore"]),
+        .target(name: "PewterCore"),
+        .testTarget(name: "PewterCoreTests", dependencies: ["PewterCore"]),
     ]
 )

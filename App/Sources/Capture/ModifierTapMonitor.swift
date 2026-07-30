@@ -1,6 +1,6 @@
 import AppKit
 import os
-import SmartListCore
+import PewterCore
 
 /// Feeds NSEvents into the `ModifierTapDetector` state machine for the
 /// configured double-tap modifier.
@@ -12,7 +12,7 @@ import SmartListCore
 /// is granted silently never fires — call `start()` again after the grant.
 @MainActor
 final class ModifierTapMonitor {
-    private static let logger = Logger(subsystem: "com.oakoss.SmartList", category: "capture")
+    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "capture")
 
     var onDoubleTap: (() -> Void)?
 

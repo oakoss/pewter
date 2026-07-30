@@ -6,4 +6,4 @@
 --stripunusedargs closure-only
 --self remove
 --header strip
---exclude build,SmartList.xcodeproj,Core/.build
+--exclude build,Pewter.xcodeproj,Core/.build

@@ -1,4 +1,4 @@
-name: SmartList
+name: Pewter
 options:
   bundleIdPrefix: com.oakoss
   deploymentTarget:
@@ -6,7 +6,7 @@ options:
   createIntermediateGroups: true
 
 packages:
-  SmartListCore:
+  PewterCore:
     path: Core
 
 settings:
@@ -19,30 +19,30 @@ settings:
     CODE_SIGN_IDENTITY: "-"
 
 targets:
-  SmartList:
+  Pewter:
     type: application
     platform: macOS
     sources:
       - App/Sources
       - App/Resources
     dependencies:
-      - package: SmartListCore
+      - package: PewterCore
     entitlements:
-      path: App/SmartList.entitlements
+      path: App/Pewter.entitlements
       properties:
         com.apple.security.app-sandbox: false
     info:
       path: App/Info.plist
       properties:
         LSUIElement: true
-        CFBundleDisplayName: smart-list
+        CFBundleDisplayName: Pewter
         LSMinimumSystemVersion: "14.0"
         NSHumanReadableCopyright: "MIT License — oakoss"
 
 schemes:
-  SmartList:
+  Pewter:
     build:
       targets:
-        SmartList: all
+        Pewter: all
     run:
       config: Debug

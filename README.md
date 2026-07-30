@@ -1,4 +1,4 @@
-# smart-list
+# Pewter
 
 A tiny menubar scratchpad for AI-assisted work. Double-tap **Shift** to capture
 whatever text you've selected — in ChatGPT, Claude, Cursor, your browser,
@@ -21,8 +21,8 @@ Free and open source. Everything stays on your Mac.
 Build from source (for now):
 
 ```sh
-git clone https://github.com/oakoss/smart-list.git
-cd smart-list
+git clone https://github.com/oakoss/pewter.git
+cd pewter
 mise install        # or: brew install xcodegen swiftformat
 make run
 ```
@@ -31,7 +31,7 @@ Requires macOS 14+ and Xcode.
 
 ## Why Accessibility permission?
 
-smart-list asks for Accessibility access for exactly two things:
+Pewter asks for Accessibility access for exactly two things:
 
 1. Listening for the double-tap capture shortcut
 2. Reading the text you have selected in the frontmost app when you trigger a capture
@@ -48,14 +48,14 @@ requests. The code is right here if you want to check.
 
 ## Your data
 
-One markdown file: `~/Library/Application Support/SmartList/smart-list.md`.
+One markdown file: `~/Library/Application Support/Pewter/pewter.md`.
 It's a plain task list — edit it by hand, sync it yourself, or point other
-tools at it. smart-list picks up external changes automatically.
+tools at it. Pewter picks up external changes automatically.
 
 ## Development
 
 ```sh
-make gen     # generate SmartList.xcodeproj (XcodeGen)
+make gen     # generate Pewter.xcodeproj (XcodeGen)
 make build   # CLI build
 make test    # Core package unit tests
 make run     # build + launch

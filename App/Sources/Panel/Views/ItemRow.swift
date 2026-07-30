@@ -1,4 +1,4 @@
-import SmartListCore
+import PewterCore
 import SwiftUI
 
 struct ItemRow: View {

@@ -65,12 +65,12 @@ private struct OnboardingView: View {
                 // be told to double-tap Shift.
                 Text(CaptureSettings.tapModifier.hint + ".")
                     .multilineTextAlignment(.center)
-                Button("Start using smart-list") { onDone() }
+                Button("Start using Pewter") { onDone() }
                     .keyboardShortcut(.defaultAction)
             } else {
                 Text(
                     """
-                    smart-list needs **Accessibility** access for two things: \
+                    Pewter needs **Accessibility** access for two things: \
                     hearing the double-tap capture shortcut, and reading the \
                     text you've selected when you trigger a capture.
 

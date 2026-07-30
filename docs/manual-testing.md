@@ -6,7 +6,7 @@ or the status item / panel / window layer.
 
 ## Permissions
 
-- [ ] `tccutil reset Accessibility com.oakoss.SmartList`, launch → onboarding
+- [ ] `tccutil reset Accessibility com.oakoss.Pewter`, launch → onboarding
       window appears
 - [ ] Grant access in System Settings → within a second or two the banner
       clears and onboarding flips to "You're all set", **without relaunching**
@@ -38,7 +38,7 @@ or the status item / panel / window layer.
 - [ ] Type "AAbbCC" quickly (shift-taps while typing) → never triggers
 - [ ] Cmd+Shift+something shortcuts → never trigger
 - [ ] Single shift tap, wait a second, single shift tap → does not trigger
-- [ ] Double-shift while the smart-list panel itself is focused → still works
+- [ ] Double-shift while the Pewter panel itself is focused → still works
       (local monitor path)
 
 ## Selection reading
@@ -64,7 +64,7 @@ or the status item / panel / window layer.
 - [ ] Status item near the right screen edge (Cmd-drag it as far right as it
       goes) → menu stays fully on screen
 - [ ] Quit the app, then relaunch it right-to-left:
-      `open build/Build/Products/Debug/SmartList.app --args
+      `open build/Build/Products/Debug/Pewter.app --args
       -AppleTextDirection YES -NSForceRightToLeftWritingDirection YES`
       → right-click menu right-aligns with the icon (not offset to either
       side)
@@ -83,7 +83,7 @@ or the status item / panel / window layer.
 
 ## Storage
 
-- [ ] `cat ~/Library/Application\ Support/SmartList/smart-list.md` is readable
+- [ ] `cat ~/Library/Application\ Support/Pewter/pewter.md` is readable
       markdown
 - [ ] Edit that file in another editor while the app runs → panel updates
 - [ ] Delete the file in Finder, recreate it with new content → panel updates

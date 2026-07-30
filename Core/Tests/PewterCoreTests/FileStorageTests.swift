@@ -1,11 +1,11 @@
 import Foundation
-@testable import SmartListCore
+@testable import PewterCore
 import Testing
 
 struct FileStorageTests {
     private func temporaryFileURL() -> URL {
         FileManager.default.temporaryDirectory
-            .appending(path: "smart-list-tests-\(UUID().uuidString)/notes.md")
+            .appending(path: "pewter-tests-\(UUID().uuidString)/notes.md")
     }
 
     @Test func savesAndLoadsRoundTrip() {

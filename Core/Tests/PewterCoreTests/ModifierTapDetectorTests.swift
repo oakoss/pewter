@@ -1,5 +1,5 @@
 import Foundation
-@testable import SmartListCore
+@testable import PewterCore
 import Testing
 
 struct ModifierTapDetectorTests {

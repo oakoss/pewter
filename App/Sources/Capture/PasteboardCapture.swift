@@ -1,13 +1,13 @@
 import AppKit
 import Carbon.HIToolbox
 import os
-import SmartListCore
+import PewterCore
 
 /// Fallback capture for apps that don't expose their selection to the
 /// Accessibility API: synthesize Cmd+C, read the pasteboard, put the user's
 /// previous clipboard back.
 struct PasteboardCapture: PasteboardCapturing {
-    private static let logger = Logger(subsystem: "com.oakoss.SmartList", category: "capture")
+    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "capture")
 
     /// True when the clipboard changed within the last few seconds. TUIs
     /// (Claude Code) auto-copy their selection on select, so recent activity

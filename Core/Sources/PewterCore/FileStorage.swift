@@ -17,13 +17,13 @@ public final class FileStorage: @unchecked Sendable {
         case recovered
     }
 
-    private let logger = Logger(subsystem: "com.oakoss.SmartList", category: "storage")
-    private let queue = DispatchQueue(label: "com.oakoss.SmartList.storage")
+    private let logger = Logger(subsystem: "com.oakoss.Pewter", category: "storage")
+    private let queue = DispatchQueue(label: "com.oakoss.Pewter.storage")
     // Callbacks are delivered on this separate serial queue so they never run
     // while `queue` is held — a handler that synchronously calls back into
     // this class (e.g. savesSuspended) would otherwise deadlock. Serial, so
     // FIFO ordering across all events is preserved.
-    private let eventQueue = DispatchQueue(label: "com.oakoss.SmartList.storage-events")
+    private let eventQueue = DispatchQueue(label: "com.oakoss.Pewter.storage-events")
     private let debounceInterval: TimeInterval
     private var onExternalChange: (@Sendable (MarkdownDocument) -> Void)?
     private var onStorageEvent: (@Sendable (StorageEvent) -> Void)?
@@ -42,7 +42,7 @@ public final class FileStorage: @unchecked Sendable {
     }
 
     public static func defaultURL() -> URL {
-        URL.applicationSupportDirectory.appending(path: "SmartList/smart-list.md")
+        URL.applicationSupportDirectory.appending(path: "Pewter/pewter.md")
     }
 
     /// True when the notes file exists but can't be read (detected at load

@@ -1,13 +1,13 @@
 import AppKit
 import ApplicationServices
 import os
-import SmartListCore
+import PewterCore
 
 /// Reads the selected text of the frontmost app via the Accessibility API —
 /// fast, invisible, no clipboard side effects. Returns nil for apps that
 /// don't expose their selection at all; the pasteboard fallback covers those.
 struct SelectionReader: SelectionReading {
-    private static let logger = Logger(subsystem: "com.oakoss.SmartList", category: "capture")
+    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "capture")
 
     @MainActor
     func readSelection() -> String? {
