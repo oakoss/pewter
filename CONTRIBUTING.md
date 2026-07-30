@@ -18,7 +18,10 @@ a guided prompt. Scopes live in `.commitlintrc.yml`. If you use
 `bd hooks install` — it appends a second copy of bd's logic into
 `.git/hooks/`, so the sync runs twice and gets clobbered by the next
 `lefthook install`; lefthook already delegates to bd's shims in
-`.beads/hooks/`.
+`.beads/hooks/`. Likewise skip `bd setup claude` / `bd setup codex`: they
+re-add managed blocks and files this repo has deliberately consolidated
+into `AGENTS.md` (CLAUDE.md is a bare `@AGENTS.md` import, and `--check`
+warnings about it are cosmetic).
 
 The `.xcodeproj` is generated and gitignored — edit `project.yml`, never the
 project file. Prefer adding logic to `Core/` (plain SwiftPM, unit-testable);
