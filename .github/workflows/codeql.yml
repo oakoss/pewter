@@ -1,11 +1,30 @@
 name: CodeQL
 
+# Analysis only sees compiled Swift, so config-only changes skip it; the
+# weekly cron still scans everything regardless of paths. Safe to filter
+# because this is an advisory check, not a required one.
 on:
   push:
     branches: [main]
+    paths:
+      - "App/**"
+      - "Core/**"
+      - "project.yml"
+      - ".github/workflows/codeql.yml"
   pull_request:
+    paths:
+      - "App/**"
+      - "Core/**"
+      - "project.yml"
+      - ".github/workflows/codeql.yml"
   schedule:
     - cron: "30 9 * * 1"
+
+# Cancel superseded PR runs only: the cron scan shares main's group, and
+# cancelling it would drop the full-scan safety net until the next week.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
