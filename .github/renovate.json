@@ -1,0 +1,29 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    "schedule:monthly",
+    ":maintainLockFilesMonthly",
+    ":semanticCommits",
+    ":semanticCommitTypeAll(chore)"
+  ],
+  "packageRules": [
+    {
+      "description": "group:allNonMajor plus digest updates, which the preset's minor/patch match misses",
+      "matchUpdateTypes": ["minor", "patch", "digest", "pinDigest"],
+      "groupName": "all non-major dependencies",
+      "groupSlug": "all-minor-patch",
+      "matchPackageNames": ["*"]
+    },
+    {
+      "description": "Majors wait for review — this includes macos runner bumps, which are pinned to an Xcode toolchain",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    }
+  ],
+  "labels": ["dependencies"],
+  "automerge": true,
+  "platformCommit": "enabled",
+  "prConcurrentLimit": 5
+}
