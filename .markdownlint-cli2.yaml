@@ -1,0 +1,21 @@
+# markdownlint-cli2 configuration
+# See: https://github.com/DavidAnson/markdownlint-cli2#configuration
+
+config:
+  default: true
+  MD007:
+    indent: 2
+  # MD013: prose wraps at editor width, not a hard limit
+  MD013: false
+  # MD024: bd emits duplicate headings into AGENTS.md
+  MD024: false
+  MD046:
+    style: fenced
+
+gitignore: true
+noBanner: true
+noProgress: true
+# bd-managed files aren't ours to lint — --fix churn fights bd's renderer.
+ignores:
+  - .beads/
+  - .agents/skills/beads/

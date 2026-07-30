@@ -1,0 +1,31 @@
+# Shared by commitlint (rules) and czg (prompt). Scopes constrain czg's
+# interactive prompt, not the linter — matching other oakoss projects.
+
+extends:
+  - '@commitlint/config-conventional'
+
+prompt:
+  allowCustomScopes: false
+  allowEmptyScopes: true
+  scopes:
+    - capture
+    - panel
+    - storage
+    - core
+    - status-item
+    - settings
+    - onboarding
+    - docs
+    - ci
+    - tooling
+    - tests
+    - deps
+  skipQuestions:
+    - breaking
+    - footer
+    - issues
+
+rules:
+  body-max-line-length: [0, always]
+  footer-max-line-length: [0, always]
+  header-max-length: [2, always, 200]

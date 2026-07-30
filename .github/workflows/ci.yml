@@ -17,6 +17,9 @@ jobs:
       - name: Lint
         run: swiftformat --lint .
 
+      - name: Lint markdown
+        run: npx --yes markdownlint-cli2 "**/*.md"
+
       - name: Core tests
         run: swift test --package-path Core
 

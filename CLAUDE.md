@@ -3,6 +3,7 @@
 This file provides instructions and context for AI coding agents working on this project.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
+
 ## Beads Issue Tracker
 
 This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
@@ -22,7 +23,7 @@ bd close <id>         # Complete work
 - Run `bd prime` for detailed command reference and session close protocol
 - Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
 
-**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
+**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See <https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md> for details and anti-patterns.
 
 ## Agent Context Profiles
 
@@ -40,6 +41,7 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
 4. **Handle git/sync by active profile**:
+
    ```bash
    # Conservative/minimal/default: report status and proposed commands; wait for approval.
    git status
@@ -49,29 +51,51 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
    git push
    git status
    ```
+
 5. **Hand off** - Summarize changes, validation, issue status, and any blocked sync/commit/push step
 
 **Critical rules:**
+
 - Explicit user or orchestrator instructions override this Beads block.
 - Do not commit or push without clear authority from the active profile or the current user request.
 - If a required sync or push is blocked, stop and report the exact command and error.
 <!-- END BEADS INTEGRATION -->
 
-
 ## Build & Test
 
-_Add your build and test commands here_
-
 ```bash
-# Example:
-# npm install
-# npm test
+make gen      # regenerate SmartList.xcodeproj from project.yml (xcodegen)
+make build    # build the app (pass-through signing via Makefile.local)
+make test     # Core unit tests: swift test --package-path Core
+make format   # swiftformat
+make lint     # swiftformat --lint
+make run      # build and launch
 ```
+
+Git hooks are managed by lefthook (`lefthook install` after clone; tools come
+from `mise.toml`). Pre-commit runs swiftformat and markdownlint on staged
+files and the beads sync hook; commit-msg enforces Conventional Commits via
+commitlint (`type(scope): subject`); the scope list in `.commitlintrc.yml`
+feeds czg's prompt, not the linter. Pre-push runs the Core tests.
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+- `Core/` — SwiftPM package `SmartListCore`: all testable logic, no AppKit.
+  Item model, markdown parse/serialize, file storage with self-protection,
+  capture orchestration, tap-detection state machine.
+- `App/` — thin AppKit/SwiftUI shell: non-activating floating panel, status
+  item, three-tier capture (AX selection — focused element, then a bounded
+  window walk → synthetic Cmd+C with clipboard restore → recent-clipboard
+  assist for TUIs), permissions/onboarding.
+- Notes live in one hand-editable markdown file under Application Support;
+  external edits are watched and merged wholesale.
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+- Swift 6 strict concurrency: `@MainActor` UI, `isolated deinit` for observers
+  and timers, `DispatchQueue.main.async` (FIFO) over unstructured `Task` when
+  event order matters.
+- New logic goes in `Core/` with tests when it has no AppKit dependency;
+  UI/window behavior is covered by `docs/manual-testing.md` instead.
+- TCC/signing gotchas (stable identity, `tccutil reset`, WWDR G3) live in
+  CONTRIBUTING.md — read it before touching capture or entitlements.

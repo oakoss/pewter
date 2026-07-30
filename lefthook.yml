@@ -1,0 +1,53 @@
+output:
+  - failure # Only show failed steps
+  - execution_out # Show command output
+
+# beads (bd) also uses git hooks for issue-db sync; lefthook owns the hooks
+# and delegates to bd's tracked shims in .beads/hooks/, which guard against
+# a missing bd binary, add a timeout, and normalize exit codes. {0} forwards
+# git's hook arguments — "$@" would be empty in lefthook's child shell.
+
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      glob: '*.swift'
+      run: swiftformat {staged_files}
+      stage_fixed: true
+    lint-md:
+      glob: '*.md'
+      run: markdownlint-cli2 --fix {staged_files}
+      stage_fixed: true
+    beads:
+      run: .beads/hooks/pre-commit {0}
+
+prepare-commit-msg:
+  commands:
+    beads:
+      run: .beads/hooks/prepare-commit-msg {0}
+
+commit-msg:
+  commands:
+    commitlint:
+      run: commitlint --edit {1}
+
+pre-push:
+  # piped: a test failure short-circuits the bd sync
+  piped: true
+  commands:
+    core-tests:
+      run: swift test --package-path Core
+    beads:
+      # git's pre-push protocol delivers the ref list on stdin
+      use_stdin: true
+      run: .beads/hooks/pre-push {0}
+
+post-checkout:
+  commands:
+    beads:
+      run: .beads/hooks/post-checkout {0}
+
+post-merge:
+  commands:
+    beads:
+      run: .beads/hooks/post-merge {0}

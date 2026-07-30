@@ -3,12 +3,22 @@
 ## Setup
 
 ```sh
-mise install            # xcodegen + swiftformat (or brew install them)
+mise install            # xcodegen, swiftformat, lefthook, markdownlint-cli2, commitlint, czg
+lefthook install        # git hooks: format/lint on commit, commit-msg lint, tests on push
 make gen                # generate SmartList.xcodeproj
 make build              # CLI build into build/
 make test               # Core package unit tests
 make run                # build + launch
 ```
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org)
+(`type(scope): subject`), enforced by commitlint at commit time; run `czg` for
+a guided prompt. Scopes live in `.commitlintrc.yml`. If you use
+[beads](https://github.com/gastownhall/beads) for issue tracking, don't run
+`bd hooks install` — it appends a second copy of bd's logic into
+`.git/hooks/`, so the sync runs twice and gets clobbered by the next
+`lefthook install`; lefthook already delegates to bd's shims in
+`.beads/hooks/`.
 
 The `.xcodeproj` is generated and gitignored — edit `project.yml`, never the
 project file. Prefer adding logic to `Core/` (plain SwiftPM, unit-testable);
@@ -34,7 +44,7 @@ Things that will bite you:
    `security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject`.
    If `security find-identity -v -p codesigning` says the cert is invalid,
    you're likely missing Apple's WWDR G3 intermediate — download it from
-   https://www.apple.com/certificateauthority/ and add it to your login
+   <https://www.apple.com/certificateauthority/> and add it to your login
    keychain.
 2. **Unwedge a stale grant** with
    `tccutil reset Accessibility com.oakoss.SmartList`, then re-grant.
@@ -58,7 +68,7 @@ Things that will bite you:
    stale on every save. `FileStorage` re-opens and re-arms after each write
    and hashes its own output to ignore self-events. Both halves are required.
 9. **The panel must override `canBecomeKey` to true** or its text fields can't
-   take input — and because the app never becomes *active*, SwiftUI `Commands`
+   take input — and because the app never becomes _active_, SwiftUI `Commands`
    shortcuts don't fire; panel keys go through `.onKeyPress` instead.
 10. **Don't switch to `MenuBarExtra`.** It activates the app on open, which
     steals focus from the app the user is capturing from and breaks the
