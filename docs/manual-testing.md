@@ -2,7 +2,7 @@
 
 Capture and permissions can't run in CI (no Accessibility grant on runners).
 Run through this before release, and after any change to `App/Sources/Capture/`
-or the panel/window layer.
+or the status item / panel / window layer.
 
 ## Permissions
 
@@ -55,6 +55,19 @@ or the panel/window layer.
       waiting longer than ~3 s with no selection → "No text selected"
 - [ ] Nothing selected + double-shift → status icon shows ✕, toast if panel
       open, clipboard untouched
+
+## Status item menu
+
+- [ ] Right-click the status item → menu opens just below the menu bar like
+      other system menus, aligned with the icon, with every item visible —
+      "Reveal Notes File in Finder" first, no scroll chevron at the top
+- [ ] Status item near the right screen edge (Cmd-drag it as far right as it
+      goes) → menu stays fully on screen
+- [ ] Quit the app, then relaunch it right-to-left:
+      `open build/Build/Products/Debug/SmartList.app --args
+      -AppleTextDirection YES -NSForceRightToLeftWritingDirection YES`
+      → right-click menu right-aligns with the icon (not offset to either
+      side)
 
 ## Panel behavior
 

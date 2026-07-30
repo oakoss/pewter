@@ -120,14 +120,28 @@ final class StatusItemController: NSObject {
 
         // Pop directly instead of the assign-menu-and-performClick dance:
         // synthesizing a click lets menubar managers (Bartender) intercept
-        // it and flash their own menu first.
-        if let button = statusItem.button {
-            menu.popUp(
-                positioning: nil,
-                at: NSPoint(x: 0, y: button.bounds.maxY + 4),
-                in: button
-            )
+        // it and flash their own menu first. The clearance matters: macOS 26
+        // reserves a band under the menu bar, and a menu anchored inside it
+        // opens in a scrolled state — a chevron replaces the first item.
+        // With a nil view the point is in screen coordinates and popUp
+        // anchors the menu's top-left corner — top-right under RTL, picked
+        // from NSApp.userInterfaceLayoutDirection.
+        guard let button = statusItem.button, let window = button.window else {
+            assertionFailure("status item button has no window")
+            return
         }
+        let menuBarClearance: CGFloat = 8
+        let x = NSApp.userInterfaceLayoutDirection == .rightToLeft
+            ? window.frame.maxX
+            : window.frame.minX
+        // popUp tracks modally, so the highlight brackets the menu's lifetime.
+        button.highlight(true)
+        menu.popUp(
+            positioning: nil,
+            at: NSPoint(x: x, y: window.frame.minY - menuBarClearance),
+            in: nil
+        )
+        button.highlight(false)
     }
 
     @objc private func revealFile() {
