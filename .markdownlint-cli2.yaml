@@ -15,7 +15,8 @@ config:
 gitignore: true
 noBanner: true
 noProgress: true
-# bd-managed files aren't ours to lint — --fix churn fights bd's renderer.
 ignores:
+  # bd-managed, not ours to lint — --fix churn fights bd's renderer
   - .beads/
-  - .agents/skills/beads/
+  # a bare @AGENTS.md import directive, not prose
+  - CLAUDE.md
