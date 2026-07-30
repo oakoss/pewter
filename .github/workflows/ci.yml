@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install tools
+        run: brew install xcodegen swiftformat
+
+      - name: Lint
+        run: swiftformat --lint .
+
+      - name: Core tests
+        run: swift test --package-path Core
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build app
+        run: >
+          xcodebuild -project SmartList.xcodeproj -scheme SmartList
+          -configuration Debug CODE_SIGNING_ALLOWED=NO build

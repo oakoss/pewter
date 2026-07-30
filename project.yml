@@ -1,0 +1,48 @@
+name: SmartList
+options:
+  bundleIdPrefix: com.oakoss
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+packages:
+  SmartListCore:
+    path: Core
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    # Ad-hoc signing so a clean clone builds with no Apple account.
+    # Capture testing needs a stable identity — see CONTRIBUTING.md.
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+
+targets:
+  SmartList:
+    type: application
+    platform: macOS
+    sources:
+      - App/Sources
+      - App/Resources
+    dependencies:
+      - package: SmartListCore
+    entitlements:
+      path: App/SmartList.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+    info:
+      path: App/Info.plist
+      properties:
+        LSUIElement: true
+        CFBundleDisplayName: smart-list
+        LSMinimumSystemVersion: "14.0"
+        NSHumanReadableCopyright: "MIT License — oakoss"
+
+schemes:
+  SmartList:
+    build:
+      targets:
+        SmartList: all
+    run:
+      config: Debug
