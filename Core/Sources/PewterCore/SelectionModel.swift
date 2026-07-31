@@ -93,6 +93,14 @@ public struct SelectionModel: Equatable, Sendable {
         return target
     }
 
+    /// Replaces the selection with `ids`, dropping any that aren't visible.
+    public mutating func replace(with ids: Set<UUID>, order: [UUID]) {
+        selected = ids
+        anchor = nil
+        lead = nil
+        prune(order: order)
+    }
+
     public mutating func selectAll(order: [UUID]) {
         guard !order.isEmpty else { return }
         selected = Set(order)

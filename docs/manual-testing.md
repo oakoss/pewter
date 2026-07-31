@@ -128,6 +128,22 @@ or the status item / panel / window layer.
 - [ ] Click a row, then press Space or Delete without any other click →
       they act on that row (a row click arms the list shortcuts)
 
+## Undo for delete
+
+- [ ] Delete a note mid-list, Cmd+Z (list focused) → it returns at its
+      original position, selected, briefly highlighted, and scrolled into view
+- [ ] Delete a multi-selection, Cmd+Z → every note returns at its original
+      position and the restored set becomes the selection
+- [ ] Cmd+Z again walks back through earlier deletes, one batch per press
+- [ ] Edit a note's text to empty (which deletes it) → Cmd+Z brings it back
+- [ ] Cmd+Z while the search or quick-add field is focused does not restore
+      a note (the key keeps its text-field meaning)
+- [ ] Delete a note, type a filter that would hide it, click the list to
+      move focus off the search field, Cmd+Z → note is restored to the file
+      but stays hidden; clearing the filter shows it unselected
+- [ ] Delete a note, then edit the notes file in another editor → Cmd+Z does
+      nothing (an external edit clears the undo history)
+
 ## Storage
 
 - [ ] `cat ~/Library/Application\ Support/Pewter/pewter.md` is readable

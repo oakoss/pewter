@@ -54,16 +54,32 @@ public struct MarkdownDocument: Equatable, Sendable {
         return true
     }
 
-    @discardableResult
-    public mutating func removeAll(ids: Set<UUID>) -> Bool {
-        let before = lines.count
-        lines.removeAll {
-            if case let .item(item) = $0 {
-                return ids.contains(item.id)
+    /// An item removed by `removeAll`, with its pre-removal index in `lines`.
+    public struct RemovedItem: Equatable, Sendable {
+        public let index: Int
+        public let item: Item
+    }
+
+    /// - Precondition: `0 <= index <= lines.count` — traps like
+    ///   `Array.insert`.
+    public mutating func insert(_ item: Item, at index: Int) {
+        lines.insert(.item(item), at: index)
+    }
+
+    /// Returns removed items in ascending index order — the shape undo needs
+    /// to re-insert them.
+    public mutating func removeAll(ids: Set<UUID>) -> [RemovedItem] {
+        var removed: [RemovedItem] = []
+        var kept: [MarkdownLine] = []
+        for (index, line) in lines.enumerated() {
+            if case let .item(item) = line, ids.contains(item.id) {
+                removed.append(RemovedItem(index: index, item: item))
+            } else {
+                kept.append(line)
             }
-            return false
         }
-        return lines.count != before
+        lines = kept
+        return removed
     }
 
     @discardableResult

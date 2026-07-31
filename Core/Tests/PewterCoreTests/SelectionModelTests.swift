@@ -5,6 +5,24 @@ import Testing
 struct SelectionModelTests {
     let ids = (0 ..< 6).map { _ in UUID() }
 
+    @Test func replaceSetsSelectionAndRepairsAnchorFromOrder() {
+        var model = SelectionModel()
+        model.select(ids[0])
+        model.replace(with: [ids[2], ids[1], UUID()], order: ids)
+        #expect(model.selected == [ids[1], ids[2]])
+        #expect(model.anchor == ids[1])
+        #expect(model.lead == ids[1])
+    }
+
+    @Test func replaceWithNothingVisibleClears() {
+        var model = SelectionModel()
+        model.select(ids[0])
+        model.replace(with: [UUID()], order: ids)
+        #expect(model.isEmpty)
+        #expect(model.anchor == nil)
+        #expect(model.lead == nil)
+    }
+
     @Test func selectCollapsesToOne() {
         var model = SelectionModel()
         model.select(ids[1])

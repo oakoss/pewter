@@ -78,6 +78,15 @@ struct PanelRootView: View {
             selection.selectAll(order: visibleOrder)
             return .handled
         }
+        .onKeyPress(keys: ["z", "Z"], phases: .down) { press in
+            // Plain Cmd+Z only — modified combos (Shift-Cmd-Z redo,
+            // Cmd-Opt-Z) stay unclaimed. Same focus rule as Cmd+A: in a
+            // text field the key keeps its field meaning.
+            guard press.modifiers.contains(.command),
+                  press.modifiers.isDisjoint(with: [.shift, .option, .control]),
+                  focus == .list || focus == nil else { return .ignored }
+            return undoDelete()
+        }
         .onKeyPress(keys: ["f"], phases: .down) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             focus = .search
@@ -183,7 +192,11 @@ struct PanelRootView: View {
                 focus = .list
             }
             .onChange(of: store.items.count) {
-                if let last = store.items.last, uiState.query.isEmpty {
+                // An explicit request (undo restore) wins over the
+                // tail-append heuristic — a restored note can land mid-list.
+                if let target = uiState.takeScrollTarget() {
+                    withAnimation { proxy.scrollTo(target) }
+                } else if let last = store.items.last, uiState.query.isEmpty {
                     withAnimation { proxy.scrollTo(last.id) }
                 }
             }
@@ -309,6 +322,21 @@ struct PanelRootView: View {
         } else {
             selection.clear()
         }
+    }
+
+    private func undoDelete() -> KeyPress.Result {
+        let restored = store.undoDelete()
+        guard !restored.isEmpty else { return .ignored }
+        // Selecting and flashing the restored notes is the only feedback —
+        // there's no undo toast — so both must survive an active filter
+        // hiding them (replace prunes; scrollTo of a hidden id is a no-op).
+        selection.replace(with: Set(restored.map(\.id)), order: visibleOrder)
+        focus = .list
+        if let first = restored.first {
+            uiState.highlight(first.id)
+            uiState.requestScroll(to: first.id)
+        }
+        return .handled
     }
 
     private func copySelected() -> KeyPress.Result {
