@@ -3,7 +3,7 @@
 ## Setup
 
 ```sh
-mise install            # xcodegen, swiftformat, lefthook, markdownlint-cli2, commitlint, czg
+mise install            # xcodegen, swiftformat, lefthook, actionlint, zizmor, markdownlint-cli2, commitlint, czg
 lefthook install        # git hooks: format/lint on commit, commit-msg lint, tests on push
 make gen                # generate Pewter.xcodeproj
 make build              # CLI build into build/
