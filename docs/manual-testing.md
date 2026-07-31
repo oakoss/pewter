@@ -31,6 +31,17 @@ or the status item / panel / window layer.
       blocked: expect the onboarding/not-permitted flow, not a captured item
 - [ ] Settings survive relaunch; the panel's empty-state hint matches the
       chosen modifier
+- [ ] Panel Hotkey → ⌃⇧P → pressing it shows the panel from any app and
+      pressing it again hides it, even with Accessibility revoked (Carbon
+      hotkeys need no permission); Off stops it; the choice survives
+      relaunch; switching to ⌃⇧Space stops the old chord and arms the new
+      one
+- [ ] With both hotkeys set (capture ⌃⇧C, panel ⌃⇧P), each fires its own
+      action — neither swallows the other
+- [ ] With ⌃⇧P already claimed by another app (any hotkey utility bound to
+      the same chord), selecting Panel Hotkey → ⌃⇧P shows the panel with
+      the "Couldn't set up the panel hotkey" toast and the menu reverts to
+      Off; same flow for a claimed Capture Hotkey chord
 
 ## Double-tap detection (default: Shift)
 

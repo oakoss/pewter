@@ -9,13 +9,15 @@ final class StatusItemController: NSObject {
     private let onShowPermissions: () -> Void
     private let onSelectTapModifier: (CaptureSettings.TapModifier) -> Void
     private let onSelectChordHotKey: (CaptureSettings.ChordHotKey) -> Void
+    private let onSelectToggleHotKey: (PanelSettings.ToggleHotKey) -> Void
 
     init(
         onToggle: @escaping (NSStatusBarButton?) -> Void,
         onRevealFile: @escaping () -> Void,
         onShowPermissions: @escaping () -> Void,
         onSelectTapModifier: @escaping (CaptureSettings.TapModifier) -> Void,
-        onSelectChordHotKey: @escaping (CaptureSettings.ChordHotKey) -> Void
+        onSelectChordHotKey: @escaping (CaptureSettings.ChordHotKey) -> Void,
+        onSelectToggleHotKey: @escaping (PanelSettings.ToggleHotKey) -> Void
     ) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         self.onToggle = onToggle
@@ -23,6 +25,7 @@ final class StatusItemController: NSObject {
         self.onShowPermissions = onShowPermissions
         self.onSelectTapModifier = onSelectTapModifier
         self.onSelectChordHotKey = onSelectChordHotKey
+        self.onSelectToggleHotKey = onSelectToggleHotKey
         super.init()
 
         if let button = statusItem.button {
@@ -105,6 +108,18 @@ final class StatusItemController: NSObject {
         chordItem.submenu = chordMenu
         menu.addItem(chordItem)
 
+        let toggleMenu = NSMenu()
+        for hotKey in PanelSettings.ToggleHotKey.allCases {
+            let item = NSMenuItem(title: hotKey.menuTitle, action: #selector(selectToggleHotKey(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = hotKey.rawValue
+            item.state = hotKey == PanelSettings.toggleHotKey ? .on : .off
+            toggleMenu.addItem(item)
+        }
+        let toggleItem = NSMenuItem(title: "Panel Hotkey", action: nil, keyEquivalent: "")
+        toggleItem.submenu = toggleMenu
+        menu.addItem(toggleItem)
+
         let listStyleMenu = NSMenu()
         for style in ItemFormatter.ListStyle.allCases {
             let item = NSMenuItem(title: style.menuTitle, action: #selector(selectListStyle(_:)), keyEquivalent: "")
@@ -183,6 +198,16 @@ final class StatusItemController: NSObject {
             return
         }
         onSelectChordHotKey(chord)
+    }
+
+    @objc private func selectToggleHotKey(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let hotKey = PanelSettings.ToggleHotKey(rawValue: raw)
+        else {
+            assertionFailure("menu item carried an unknown panel hotkey")
+            return
+        }
+        onSelectToggleHotKey(hotKey)
     }
 
     @objc private func selectListStyle(_ sender: NSMenuItem) {

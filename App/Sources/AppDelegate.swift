@@ -10,10 +10,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController?
     private var permission: AccessibilityPermission?
     private var tapMonitor: ModifierTapMonitor?
-    private var chordMonitor: ChordHotKeyMonitor?
+    private var hotKeyCenter: HotKeyCenter?
     private var captureCoordinator: CaptureCoordinator?
     private var onboarding: OnboardingWindowController?
-    private var armedChord: CaptureSettings.ChordHotKey = .off
     private var clipboardTracker: ClipboardActivityTracker?
     private let uiState = PanelUIState()
 
@@ -50,6 +49,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onSelectChordHotKey: { [weak self] chord in
                 CaptureSettings.chordHotKey = chord
                 self?.applyCaptureTriggers()
+            },
+            onSelectToggleHotKey: { [weak self] hotKey in
+                PanelSettings.toggleHotKey = hotKey
+                self?.applyPanelToggleHotKey()
             }
         )
         self.statusItemController = statusItemController
@@ -92,10 +95,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             coordinator?.captureSelection()
         }
 
-        let chordMonitor = ChordHotKeyMonitor()
-        self.chordMonitor = chordMonitor
-        chordMonitor.onHotKey = { [weak coordinator] in
+        let hotKeyCenter = HotKeyCenter()
+        self.hotKeyCenter = hotKeyCenter
+        hotKeyCenter.setHandler(for: .capture) { [weak coordinator] in
             coordinator?.captureSelection()
+        }
+        hotKeyCenter.setHandler(for: .panelToggle) { [weak self] in
+            guard let self else { return }
+            self.panelController?.toggle(relativeTo: self.statusItemController?.button)
         }
 
         let onboarding = OnboardingWindowController(permission: permission)
@@ -138,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         applyCaptureTriggers()
+        applyPanelToggleHotKey()
         if !permission.isTrusted {
             onboarding.showIfNeeded()
         }
@@ -155,22 +163,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             tapMonitor?.stop()
         }
 
-        // Re-arm the chord only when it changed — a needless re-registration
-        // that transiently fails would flip the user's hotkey off.
-        let chord = CaptureSettings.chordHotKey
-        guard chord != armedChord else { return }
-        if let key = chord.carbonKey {
-            if chordMonitor?.start(keyCode: key.keyCode, modifiers: key.modifiers) == true {
-                armedChord = chord
-            } else {
-                CaptureSettings.chordHotKey = .off
-                armedChord = .off
-                panelController?.show(relativeTo: statusItemController?.button)
-                uiState.showToast("Couldn't set up the hotkey — it may be in use by another app")
-            }
-        } else {
-            chordMonitor?.stop()
-            armedChord = .off
+        if hotKeyCenter?.arm(.capture, chord: CaptureSettings.chordHotKey.chord) == .failed {
+            CaptureSettings.chordHotKey = .off
+            panelController?.show(relativeTo: statusItemController?.button)
+            uiState.showToast("Couldn't set up the hotkey — it may be in use by another app")
+        }
+    }
+
+    /// (Re)arms the panel toggle hotkey; permission-free, so always armed.
+    private func applyPanelToggleHotKey() {
+        if hotKeyCenter?.arm(.panelToggle, chord: PanelSettings.toggleHotKey.chord) == .failed {
+            PanelSettings.toggleHotKey = .off
+            panelController?.show(relativeTo: statusItemController?.button)
+            uiState.showToast("Couldn't set up the panel hotkey — it may be in use by another app")
         }
     }
 
