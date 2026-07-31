@@ -38,6 +38,7 @@ targets:
       path: App/Info.plist
       properties:
         LSUIElement: true
+        LSApplicationCategoryType: public.app-category.productivity
         CFBundleDisplayName: Pewter
         LSMinimumSystemVersion: "14.0"
         NSHumanReadableCopyright: "MIT License — oakoss"

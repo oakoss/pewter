@@ -17,7 +17,8 @@ or the status item / panel / window layer.
 - [ ] Dismiss onboarding with "Later" → status item right-click →
       Permissions… reopens it (shows "You're all set" when already trusted)
 - [ ] Onboarding's "Open System Settings" lands on Privacy & Security →
-      Accessibility
+      Accessibility (the deep link uses a legacy settings anchor — re-verify
+      on each new macOS major)
 
 ## Capture trigger configuration
 
@@ -76,6 +77,8 @@ or the status item / panel / window layer.
       (1. 2. 3., the default), bulleted (-), and task list (- [ ]); the
       choice persists across relaunch and applies to both Cmd+Shift+C and
       the context menu's Copy as List
+- [ ] Menu bar style set to Tinted (macOS 26, Appearance settings) with
+      Reduce Transparency on → the status icon stays legible
 - [ ] Status item near the right screen edge (Cmd-drag it as far right as it
       goes) → menu stays fully on screen
 - [ ] Quit the app, then relaunch it right-to-left:

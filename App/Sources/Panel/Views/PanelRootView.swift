@@ -4,6 +4,7 @@ import SwiftUI
 struct PanelRootView: View {
     @Environment(ListStore.self) private var store
     @Environment(PanelUIState.self) private var uiState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var draft = ""
     @State private var selection = SelectionModel()
@@ -195,9 +196,9 @@ struct PanelRootView: View {
                 // An explicit request (undo restore) wins over the
                 // tail-append heuristic — a restored note can land mid-list.
                 if let target = uiState.takeScrollTarget() {
-                    withAnimation { proxy.scrollTo(target) }
+                    withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(target) }
                 } else if let last = store.items.last, uiState.query.isEmpty {
-                    withAnimation { proxy.scrollTo(last.id) }
+                    withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(last.id) }
                 }
             }
         }

@@ -191,14 +191,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             uiState.query = ""
             panelController?.show(relativeTo: statusItemController?.button)
             uiState.highlight(item.id)
-            statusItemController?.flash(symbolName: "checkmark.circle")
+            statusItemController?.flash(symbolName: "checkmark.circle", description: "Captured")
         case .nothingSelected:
-            statusItemController?.flash(symbolName: "xmark.circle")
+            statusItemController?.flash(symbolName: "xmark.circle", description: "Nothing selected")
             if panelController?.isVisible == true {
                 uiState.showToast("No text selected")
             }
         case .captureFailed:
-            statusItemController?.flash(symbolName: "exclamationmark.circle")
+            statusItemController?.flash(symbolName: "exclamationmark.circle", description: "Capture failed")
             if panelController?.isVisible == true {
                 uiState.showToast("Couldn't capture — try copying manually")
             }

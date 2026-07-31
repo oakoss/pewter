@@ -1,0 +1,32 @@
+name: Bug report
+description: Something broke or behaved unexpectedly
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: e.g. 26.5
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: Pewter version or commit
+      placeholder: e.g. 1.0 or a git SHA if built from source
+  - type: textarea
+    id: crash-log
+    attributes:
+      label: Crash report (if the app crashed)
+      description: >
+        Pewter never sends anything off your Mac, so crash reports only reach
+        us if you attach them. Look in Finder → Go → Go to Folder →
+        `~/Library/Logs/DiagnosticReports/` for the newest `Pewter-*.ips`
+        file and drag it here (or paste its contents).

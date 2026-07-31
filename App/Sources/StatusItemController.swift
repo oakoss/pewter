@@ -45,12 +45,14 @@ final class StatusItemController: NSObject {
 
     private var flashTask: Task<Void, Never>?
 
-    func flash(symbolName: String, duration: TimeInterval = 0.8) {
+    /// Names the flash image so VoiceOver reads the state instead of an
+    /// unlabeled button when the user navigates to the status item.
+    func flash(symbolName: String, description: String, duration: TimeInterval = 0.8) {
         guard let button = statusItem.button else { return }
         // Cancel the previous restore or two quick flashes would clear the
         // second one's symbol early.
         flashTask?.cancel()
-        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: description)
         flashTask = Task {
             try? await Task.sleep(for: .seconds(duration))
             guard !Task.isCancelled else { return }
