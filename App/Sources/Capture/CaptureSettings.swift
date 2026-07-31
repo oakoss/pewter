@@ -50,12 +50,11 @@ enum CaptureSettings {
             }
         }
 
-        /// Carbon (keyCode, modifiers) for RegisterEventHotKey.
-        var carbonKey: (keyCode: UInt32, modifiers: UInt32)? {
+        var chord: HotKeyCenter.Chord? {
             switch self {
             case .off: nil
-            case .controlShiftC: (UInt32(kVK_ANSI_C), UInt32(controlKey | shiftKey))
-            case .controlOptionC: (UInt32(kVK_ANSI_C), UInt32(controlKey | optionKey))
+            case .controlShiftC: .init(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(controlKey | shiftKey))
+            case .controlOptionC: .init(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(controlKey | optionKey))
             }
         }
     }
