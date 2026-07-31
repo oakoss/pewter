@@ -76,8 +76,11 @@ jobs:
             # review_on_push accumulates one review per push, oldest first.
             # Transient API failures wait for the next tick instead of
             # failing the check.
+            # Exact bot login: anyone can review a public PR, so a substring
+            # match could be satisfied by any account with "copilot" in its
+            # name.
             count=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100" \
-              --jq '.[] | select(.commit_id == env.HEAD_SHA and (.user.login | ascii_downcase | contains("copilot"))) | .id' \
+              --jq '.[] | select(.commit_id == env.HEAD_SHA and .user.login == "copilot-pull-request-reviewer[bot]") | .id' \
               | wc -l) || count=0
             if [ "${count:-0}" -gt 0 ]; then exit 0; fi
             sleep 15
