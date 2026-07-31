@@ -47,29 +47,41 @@ public final class ListStore {
         return item
     }
 
-    public func toggleDone(id: UUID) {
-        guard var item = items.first(where: { $0.id == id }) else { return }
-        item.done.toggle()
-        document.update(item)
-        persist()
-    }
-
     public func updateText(id: UUID, text: String) {
         guard let item = items.first(where: { $0.id == id }) else { return }
         // Rebuilding through the initializer applies its line-break
         // normalization to edited text, same as captured text.
         let updated = Item(id: item.id, text: text, done: item.done, createdAt: item.createdAt)
         if updated.text.isEmpty {
-            document.remove(id: id)
+            document.removeAll(ids: [id])
         } else {
             document.update(updated)
         }
         persist()
     }
 
-    public func delete(id: UUID) {
-        document.remove(id: id)
-        persist()
+    public func delete(ids: Set<UUID>) {
+        if document.removeAll(ids: ids) {
+            persist()
+        }
+    }
+
+    public func setDone(ids: Set<UUID>, done: Bool) {
+        if document.setDone(ids: ids, done: done) {
+            persist()
+        }
+    }
+
+    /// True when every item in `ids` is done. Drives both the converge
+    /// direction and the context-menu label, so the two can't disagree.
+    public func allDone(ids: Set<UUID>) -> Bool {
+        items.filter { ids.contains($0.id) }.allSatisfy(\.done)
+    }
+
+    /// Converges a mixed selection instead of flipping each member: any
+    /// not-done item marks the whole set done.
+    public func toggleDone(ids: Set<UUID>) {
+        setDone(ids: ids, done: !allDone(ids: ids))
     }
 
     public func filtered(query: String) -> [Item] {

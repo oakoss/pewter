@@ -6,7 +6,7 @@ struct PanelRootView: View {
     @Environment(PanelUIState.self) private var uiState
 
     @State private var draft = ""
-    @State private var selectedID: UUID?
+    @State private var selection = SelectionModel()
     @State private var editingID: UUID?
     @FocusState private var focus: Field?
 
@@ -18,7 +18,17 @@ struct PanelRootView: View {
         store.filtered(query: uiState.query)
     }
 
+    private var visibleOrder: [UUID] {
+        visibleItems.map(\.id)
+    }
+
+    private var selectedItems: [Item] {
+        visibleItems.filter { selection.isSelected($0.id) }
+    }
+
     var body: some View {
+        // One filter walk per render; everything below derives from it.
+        let items = visibleItems
         VStack(spacing: 0) {
             if let storageError = uiState.storageError {
                 errorBanner(storageError)
@@ -28,7 +38,7 @@ struct PanelRootView: View {
             }
             searchField
             Divider()
-            itemList
+            itemList(items)
             Divider()
             quickAddField
         }
@@ -46,14 +56,27 @@ struct PanelRootView: View {
         .animation(.easeInOut(duration: 0.15), value: uiState.toast)
         .frame(minWidth: 320, idealWidth: 360, minHeight: 360, idealHeight: 480)
         .background(.ultraThinMaterial)
-        .onKeyPress(.upArrow) { moveSelection(-1) }
-        .onKeyPress(.downArrow) { moveSelection(1) }
+        .onKeyPress(keys: [.upArrow, .downArrow], phases: .down) { press in
+            moveSelection(
+                press.key == .upArrow ? -1 : 1,
+                extending: press.modifiers.contains(.shift)
+            )
+        }
         .onKeyPress(.space) { toggleSelected() }
         .onKeyPress(.return) { editSelected() }
         .onKeyPress(keys: [.delete, .deleteForward], phases: .down) { _ in deleteSelected() }
         .onKeyPress(keys: ["c", "C"], phases: .down) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
-            return press.modifiers.contains(.shift) ? copyVisibleList() : copySelected()
+            return press.modifiers.contains(.shift) ? copyList() : copySelected()
+        }
+        .onKeyPress(keys: ["a", "A"], phases: .down) { press in
+            // The focus guard keeps Cmd+A in a text field meaning
+            // "select the text", regardless of who consumes the key first.
+            guard press.modifiers.contains(.command),
+                  focus == .list || focus == nil,
+                  !visibleItems.isEmpty else { return .ignored }
+            selection.selectAll(order: visibleOrder)
+            return .handled
         }
         .onKeyPress(keys: ["f"], phases: .down) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
@@ -61,18 +84,35 @@ struct PanelRootView: View {
             return .handled
         }
         .onKeyPress(.escape) {
-            // Clear an active filter from any focus; with no filter, fall
-            // through to the panel's cancelOperation (hides it).
+            // Ladder: drop a multi-selection, then the filter; otherwise fall
+            // through to the panel's cancelOperation (hides it). A single
+            // selection doesn't count — quick-add selects what it added, and
+            // capture-then-Esc must still hide the panel in one press.
+            if selection.isMultiple {
+                selection.clear()
+                return .handled
+            }
             guard !uiState.query.isEmpty else { return .ignored }
             uiState.query = ""
             return .handled
         }
-        .onChange(of: focus) { _, newFocus in
+        .onChange(of: items.map(\.id)) { _, newOrder in
+            selection.prune(order: newOrder)
+        }
+        .onChange(of: focus) { oldFocus, newFocus in
             // Clicking into another field mid-edit would otherwise strand a
             // stale editor row with uncommitted text and dead arrow keys —
             // `editingID` and `.editor` focus must never diverge.
             if newFocus != .editor, editingID != nil {
                 editingID = nil
+            }
+            // Moving into the composer means done with the list; a parked
+            // selection would let list shortcuts act at a distance later.
+            // Guarded to real moves from another field: submit and makeKey
+            // both bounce focus through nil back to .quickAdd, and that
+            // restoration must not wipe the just-added note's selection.
+            if newFocus == .quickAdd, oldFocus != nil {
+                selection.clear()
             }
         }
         .onAppear { focus = .quickAdd }
@@ -91,34 +131,40 @@ struct PanelRootView: View {
         .padding(10)
     }
 
-    private var itemList: some View {
-        ScrollViewReader { proxy in
+    private func itemList(_ items: [Item]) -> some View {
+        // Hoisted: computing this per row would walk the document once per
+        // selected row on every render.
+        let selectionMarksDone = !store.allDone(ids: selection.selected)
+        return ScrollViewReader { proxy in
             ScrollView {
                 // Focusable so list-level shortcuts (Space, Return, Delete,
                 // Cmd+C) have a focus state distinct from the text fields.
                 LazyVStack(spacing: 4) {
-                    ForEach(visibleItems) { item in
+                    ForEach(items) { item in
                         ItemRow(
                             item: item,
-                            isSelected: item.id == selectedID,
+                            isSelected: selection.isSelected(item.id),
                             isHighlighted: item.id == uiState.highlightedItemID,
                             isEditing: item.id == editingID,
+                            menuMarksDone: selection.isSelected(item.id) ? selectionMarksDone : !item.done,
                             editorFocus: $focus,
-                            onToggle: { store.toggleDone(id: item.id) },
-                            onSelect: { selectedID = item.id },
+                            onToggle: { store.toggleDone(ids: [item.id]) },
+                            onSelect: { select(item) },
                             onBeginEdit: { beginEdit(item) },
                             onCommitEdit: { text in commitEdit(id: item.id, text: text) },
                             onCancelEdit: {
                                 editingID = nil
                                 focus = .list
                             },
-                            onCopy: { copy(item) },
-                            onCopyList: { _ = copyVisibleList() },
-                            onDelete: { delete(id: item.id) }
+                            onCopy: { copy([item]) },
+                            onMenuCopy: { copy(targets(for: item)) },
+                            onMenuCopyList: { copyAsList(targets(for: item)) },
+                            onMenuToggle: { toggleDone(targets(for: item)) },
+                            onDelete: { delete(ids: Set(targets(for: item).map(\.id))) }
                         )
                         .id(item.id)
                     }
-                    if visibleItems.isEmpty {
+                    if items.isEmpty {
                         emptyState
                     }
                 }
@@ -129,6 +175,13 @@ struct PanelRootView: View {
             // system focus ring around the whole scroll area.
             .focusEffectDisabled()
             .focused($focus, equals: .list)
+            // contentShape makes the empty area below the rows hit-testable;
+            // the gesture fires only for clicks no row consumed.
+            .contentShape(Rectangle())
+            .onTapGesture {
+                selection.clear()
+                focus = .list
+            }
             .onChange(of: store.items.count) {
                 if let last = store.items.last, uiState.query.isEmpty {
                     withAnimation { proxy.scrollTo(last.id) }
@@ -187,7 +240,7 @@ struct PanelRootView: View {
             .onSubmit {
                 if let added = store.add(text: draft) {
                     draft = ""
-                    selectedID = added.id
+                    selection.select(added.id)
                 }
                 focus = .quickAdd
             }
@@ -195,69 +248,105 @@ struct PanelRootView: View {
 
     // MARK: - Actions
 
-    private func moveSelection(_ delta: Int) -> KeyPress.Result {
-        let items = visibleItems
-        guard !items.isEmpty, editingID == nil, focus != .editor else { return .ignored }
+    /// What a row-level action applies to: the whole selection when the row
+    /// is part of it, the row alone otherwise.
+    private func targets(for item: Item) -> [Item] {
+        selection.isSelected(item.id) ? selectedItems : [item]
+    }
+
+    private func select(_ item: Item) {
+        // Explicit, mirroring the empty-area path — a row click must arm the
+        // list shortcuts without relying on focusable()'s implicit focus.
+        focus = .list
+        let modifiers = NSEvent.modifierFlags
+        if modifiers.contains(.command) {
+            selection.toggle(item.id)
+        } else if modifiers.contains(.shift) {
+            selection.extend(to: item.id, order: visibleOrder)
+        } else {
+            selection.select(item.id)
+        }
+    }
+
+    private func moveSelection(_ delta: Int, extending: Bool) -> KeyPress.Result {
+        guard !visibleItems.isEmpty, editingID == nil, focus != .editor else { return .ignored }
         // First arrow press pulls focus out of the text fields so the
         // list-level shortcuts below become live.
         focus = .list
-        let currentIndex = items.firstIndex { $0.id == selectedID }
-        let next: Int = if let currentIndex {
-            min(max(currentIndex + delta, 0), items.count - 1)
-        } else {
-            delta > 0 ? 0 : items.count - 1
-        }
-        selectedID = items[next].id
+        selection.step(delta, order: visibleOrder, extending: extending)
         return .handled
     }
 
     private func toggleSelected() -> KeyPress.Result {
-        guard focus == .list, let id = selectedID else { return .ignored }
-        store.toggleDone(id: id)
+        guard focus == .list, !selection.isEmpty else { return .ignored }
+        store.toggleDone(ids: selection.selected)
         return .handled
     }
 
     private func editSelected() -> KeyPress.Result {
-        guard focus == .list, let item = visibleItems.first(where: { $0.id == selectedID }) else { return .ignored }
+        guard focus == .list, let id = selection.single,
+              let item = visibleItems.first(where: { $0.id == id }) else { return .ignored }
         beginEdit(item)
         return .handled
     }
 
     private func deleteSelected() -> KeyPress.Result {
-        guard focus == .list, let id = selectedID else { return .ignored }
-        delete(id: id)
+        guard focus == .list, !selection.isEmpty else { return .ignored }
+        delete(ids: selection.selected)
         return .handled
     }
 
-    private func delete(id: UUID) {
-        store.delete(id: id)
-        // A dangling selection would make the next arrow press jump to the
-        // list edge instead of a neighbor.
-        if selectedID == id {
-            selectedID = nil
+    private func delete(ids: Set<UUID>) {
+        // Reselecting a neighbor keeps arrow keys anchored where the user
+        // was working — but only when the deletion touched the selection;
+        // menu-deleting an unrelated row must not hijack it.
+        let touchesSelection = !ids.isDisjoint(with: selection.selected)
+        let next = touchesSelection ? SelectionModel.survivor(afterRemoving: ids, order: visibleOrder) : nil
+        store.delete(ids: ids)
+        guard touchesSelection else { return }
+        if let next {
+            selection.select(next)
+        } else {
+            selection.clear()
         }
     }
 
     private func copySelected() -> KeyPress.Result {
-        guard focus == .list, let item = visibleItems.first(where: { $0.id == selectedID }) else { return .ignored }
-        copy(item)
+        let items = selectedItems
+        // Guard the materialized rows, not the ID set — a stale selection
+        // must not wipe the clipboard with an empty write.
+        guard focus == .list, !items.isEmpty else { return .ignored }
+        copy(items)
         return .handled
     }
 
-    private func copyVisibleList() -> KeyPress.Result {
-        // Writing an empty list would wipe the user's clipboard for nothing.
-        guard !visibleItems.isEmpty else { return .ignored }
-        Pasteboard.write(ItemFormatter.listText(visibleItems))
+    private func copyList() -> KeyPress.Result {
+        // A multi-selection narrows the list copy to it; otherwise the whole
+        // visible list. Never write an empty list — it would wipe the user's
+        // clipboard for nothing.
+        let items = selection.isMultiple ? selectedItems : visibleItems
+        guard !items.isEmpty else { return .ignored }
+        copyAsList(items)
         return .handled
     }
 
-    private func copy(_ item: Item) {
-        Pasteboard.write(ItemFormatter.itemText(item))
+    // Scope-taking effects shared by the keyboard and context-menu paths.
+
+    private func copy(_ items: [Item]) {
+        Pasteboard.write(ItemFormatter.itemsText(items))
+    }
+
+    private func copyAsList(_ items: [Item]) {
+        Pasteboard.write(ItemFormatter.listText(items, style: PanelSettings.listCopyStyle))
+    }
+
+    private func toggleDone(_ items: [Item]) {
+        store.toggleDone(ids: Set(items.map(\.id)))
     }
 
     private func beginEdit(_ item: Item) {
         editingID = item.id
-        selectedID = item.id
+        selection.select(item.id)
         focus = .editor
     }
 

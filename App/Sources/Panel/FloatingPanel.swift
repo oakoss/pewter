@@ -20,7 +20,9 @@ final class FloatingPanel: NSPanel {
         titlebarAppearsTransparent = true
         isMovableByWindowBackground = true
         hidesOnDeactivate = false
-        becomesKeyOnlyIfNeeded = true
+        // AppKit's default. With `true`, AppKit swallows the click that
+        // re-keys an unkeyed panel, so a row click would not also select.
+        becomesKeyOnlyIfNeeded = false
         isReleasedWhenClosed = false
         standardWindowButton(.closeButton)?.isHidden = true
         standardWindowButton(.miniaturizeButton)?.isHidden = true
@@ -39,5 +41,16 @@ final class FloatingPanel: NSPanel {
 
     override func cancelOperation(_ sender: Any?) {
         orderOut(nil)
+    }
+
+    override func sendEvent(_ event: NSEvent) {
+        // Declarative key acquisition is unreliable for a non-activating
+        // panel once another app holds key — shortcuts then leak into that
+        // app. Reclaim key on any click, the same call the status-item
+        // toggle uses; the app still never activates.
+        if !isKeyWindow, event.type == .leftMouseDown || event.type == .rightMouseDown {
+            makeKey()
+        }
+        super.sendEvent(event)
     }
 }

@@ -6,6 +6,9 @@ struct ItemRow: View {
     let isSelected: Bool
     let isHighlighted: Bool
     let isEditing: Bool
+    /// Whether the context menu's done action marks its targets done (vs not
+    /// done) — computed over the whole selection when this row is in it.
+    let menuMarksDone: Bool
     var editorFocus: FocusState<PanelRootView.Field?>.Binding
     let onToggle: () -> Void
     let onSelect: () -> Void
@@ -13,7 +16,9 @@ struct ItemRow: View {
     let onCommitEdit: (String) -> Void
     let onCancelEdit: () -> Void
     let onCopy: () -> Void
-    let onCopyList: () -> Void
+    let onMenuCopy: () -> Void
+    let onMenuCopyList: () -> Void
+    let onMenuToggle: () -> Void
     let onDelete: () -> Void
 
     @State private var editText = ""
@@ -48,10 +53,10 @@ struct ItemRow: View {
         .onTapGesture(count: 2) { onBeginEdit() }
         .onTapGesture { onSelect() }
         .contextMenu {
-            Button("Copy") { onCopy() }
-            Button("Copy as List") { onCopyList() }
+            Button("Copy") { onMenuCopy() }
+            Button("Copy as List") { onMenuCopyList() }
             Divider()
-            Button(item.done ? "Mark as Not Done" : "Mark as Done") { onToggle() }
+            Button(menuMarksDone ? "Mark as Done" : "Mark as Not Done") { onMenuToggle() }
             Button("Edit") { onBeginEdit() }
             Divider()
             Button("Delete", role: .destructive) { onDelete() }
@@ -60,9 +65,14 @@ struct ItemRow: View {
 
     private var backgroundStyle: AnyShapeStyle {
         if isHighlighted {
-            AnyShapeStyle(Color.accentColor.opacity(0.25))
+            // Stronger than the selected fill or the capture flash reads as
+            // a slight dimming on an already-selected row.
+            AnyShapeStyle(Color.accentColor.opacity(0.45))
         } else if isSelected {
-            AnyShapeStyle(.selection.opacity(0.35))
+            // Explicit accent, not `.selection`: that style drops to its
+            // unemphasized appearance whenever the app is inactive, and this
+            // panel is non-activating — the app is inactive almost always.
+            AnyShapeStyle(Color.accentColor.opacity(0.3))
         } else {
             AnyShapeStyle(.background.opacity(0.6))
         }

@@ -15,12 +15,12 @@ struct ListStoreTests {
         let store = ListStore()
         let item = try #require(store.add(text: "toggle me"))
 
-        store.toggleDone(id: item.id)
+        store.toggleDone(ids: [item.id])
         #expect(store.items[0].done == true)
-        store.toggleDone(id: item.id)
+        store.toggleDone(ids: [item.id])
         #expect(store.items[0].done == false)
 
-        store.delete(id: item.id)
+        store.delete(ids: [item.id])
         #expect(store.items.isEmpty)
     }
 
@@ -83,5 +83,66 @@ struct ListStoreTests {
         #expect(store.filtered(query: "CAFÉ").count == 1)
         #expect(store.filtered(query: "").count == 2)
         #expect(store.filtered(query: "zzz").isEmpty)
+    }
+
+    @Test func batchDeleteRemovesAllAndIgnoresUnknownIDs() throws {
+        let store = ListStore()
+        let a = try #require(store.add(text: "a"))
+        let b = try #require(store.add(text: "b"))
+        let c = try #require(store.add(text: "c"))
+
+        store.delete(ids: [a.id, c.id, UUID()])
+        #expect(store.items.map(\.id) == [b.id])
+
+        store.delete(ids: [])
+        #expect(store.items.count == 1)
+    }
+
+    @Test func setDoneConvergesMixedSelection() throws {
+        let store = ListStore()
+        let a = try #require(store.add(text: "a"))
+        let b = try #require(store.add(text: "b"))
+        store.toggleDone(ids: [a.id])
+
+        store.setDone(ids: [a.id, b.id], done: true)
+        #expect(store.items.map(\.done) == [true, true])
+
+        store.setDone(ids: [a.id, b.id], done: false)
+        #expect(store.items.map(\.done) == [false, false])
+    }
+
+    @Test func toggleDoneIDsConvergesThenFlips() throws {
+        let store = ListStore()
+        let a = try #require(store.add(text: "a"))
+        let b = try #require(store.add(text: "b"))
+        store.toggleDone(ids: [a.id])
+        #expect(store.allDone(ids: [a.id, b.id]) == false)
+
+        store.toggleDone(ids: [a.id, b.id])
+        #expect(store.items.map(\.done) == [true, true])
+        #expect(store.allDone(ids: [a.id, b.id]))
+
+        store.toggleDone(ids: [a.id, b.id])
+        #expect(store.items.map(\.done) == [false, false])
+    }
+
+    @Test func batchMutationsPersistThroughStorage() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let storage = FileStorage(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        let a = try #require(store.add(text: "a"))
+        let b = try #require(store.add(text: "b"))
+        let c = try #require(store.add(text: "c"))
+
+        store.setDone(ids: [a.id, b.id], done: true)
+        store.delete(ids: [c.id])
+        store.flush()
+
+        let reloaded = ListStore.loadFrom(storage: FileStorage(fileURL: url))
+        #expect(reloaded.items.map(\.text) == ["a", "b"])
+        #expect(reloaded.items.map(\.done) == [true, true])
     }
 }
