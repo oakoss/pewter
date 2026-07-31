@@ -11,6 +11,7 @@ mise run test     # Core unit tests: swift test --package-path Core
 mise run format   # swiftformat + markdownlint --fix
 mise run lint     # swiftformat, markdownlint, actionlint, zizmor
 mise run ci       # lint + test + build in parallel (pre-push check)
+mise run icon     # re-render AppIcon PNGs from App/AppIcon.svg
 mise run run      # build and relaunch
 ```
 

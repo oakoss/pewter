@@ -1,0 +1,35 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- macOS icon grid: 824px tile centered in a 1024 canvas; the system
+       masks/normalizes on macOS 26 but renders this artwork as-is on 14/15,
+       so the margins and shadow are baked here. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#31353c"/>
+      <stop offset="1" stop-color="#181b20"/>
+    </linearGradient>
+    <linearGradient id="pw" gradientUnits="userSpaceOnUse" x1="0" y1="208" x2="0" y2="816">
+      <stop offset="0" stop-color="#d3d7dd"/>
+      <stop offset="0.5" stop-color="#a3a8b0"/>
+      <stop offset="1" stop-color="#7c828b"/>
+    </linearGradient>
+    <!-- SVG 1.1 primitives, not feDropShadow: Inkscape 1.4 doesn't
+         implement it and renders the whole filtered group as nothing. -->
+    <filter id="shadow" x="-15%" y="-15%" width="130%" height="130%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="22"/>
+      <feOffset dx="0" dy="12" result="off"/>
+      <feFlood flood-color="#000000" flood-opacity="0.35"/>
+      <feComposite in2="off" operator="in"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g transform="translate(100,100) scale(0.8046875)" filter="url(#shadow)">
+    <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+    <g fill="url(#pw)">
+      <path d="M 208 208 L 400 208 L 400 264 L 264 264 L 264 400 L 208 400 Z"/>
+      <path d="M 816 208 L 816 400 L 760 400 L 760 264 L 624 264 L 624 208 Z"/>
+      <path d="M 208 816 L 208 624 L 264 624 L 264 760 L 400 760 L 400 816 Z"/>
+      <path d="M 816 816 L 624 816 L 624 760 L 760 760 L 760 624 L 816 624 Z"/>
+    </g>
+    <path d="M 368 528 L 476 636 L 668 400" stroke="url(#pw)" stroke-width="86" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+</svg>
