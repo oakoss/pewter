@@ -23,12 +23,12 @@ depends = ["lint", "test", "build"]
 
 [tasks.gen]
 description = "Regenerate Pewter.xcodeproj from project.yml"
+# Always runs — no sources/outputs skip. xcodegen takes well under a
+# second, its real inputs are the whole App tree (it globs), and mise's
+# freshness check ignores some missing outputs (a deleted generated
+# Info.plist did not trigger a re-run when tested). Correctness over a
+# saved fraction of a second.
 run = "xcodegen generate"
-# xcodegen globs the App tree, so the project depends on it, not just
-# project.yml — sources listing only project.yml would silently skip
-# regeneration when files are added or removed.
-sources = ["project.yml", "App/Sources/**/*", "App/Resources/**/*"]
-outputs = ["Pewter.xcodeproj/project.pbxproj"]
 
 [tasks.build]
 alias = "b"
