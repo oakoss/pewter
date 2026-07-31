@@ -7,6 +7,9 @@ public final class ListStore {
     public private(set) var document: MarkdownDocument
     private let storage: FileStorage?
 
+    private var deletedBatches: [[MarkdownDocument.RemovedItem]] = []
+    private static let undoDepth = 10
+
     public var items: [Item] {
         document.items
     }
@@ -20,21 +23,28 @@ public final class ListStore {
     /// is installed before the first load so no change window is missed.
     public static func loadFrom(storage: FileStorage) -> ListStore {
         let store = ListStore(storage: storage)
-        storage.setOnExternalChange { [weak store, weak storage] newDocument in
+        storage.setOnExternalChange { [weak store] newDocument in
             // DispatchQueue.main is FIFO; unstructured Tasks are not, and two
             // rapid external edits applied out of order would wedge the UI on
             // stale content (the hash guard suppresses any correction).
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    // External wins over any local edit that raced this
-                    // application; its scheduled save must not fire.
-                    storage?.cancelPendingSave()
-                    store?.document = newDocument
+                    store?.applyExternalChange(newDocument)
                 }
             }
         }
         store.document = storage.load()
         return store
+    }
+
+    /// Replaces the document with an externally-edited one. External wins
+    /// over any local edit that raced it — its scheduled save must not fire —
+    /// and undo history is cleared: the recorded positions describe a
+    /// document that no longer exists.
+    public func applyExternalChange(_ newDocument: MarkdownDocument) {
+        storage?.cancelPendingSave()
+        document = newDocument
+        deletedBatches.removeAll()
     }
 
     @discardableResult
@@ -52,18 +62,39 @@ public final class ListStore {
         // Rebuilding through the initializer applies its line-break
         // normalization to edited text, same as captured text.
         let updated = Item(id: item.id, text: text, done: item.done, createdAt: item.createdAt)
-        if updated.text.isEmpty {
-            document.removeAll(ids: [id])
-        } else {
-            document.update(updated)
+        guard !updated.text.isEmpty else {
+            // Clearing the text is a delete, and an undoable one.
+            delete(ids: [id])
+            return
         }
+        document.update(updated)
         persist()
     }
 
     public func delete(ids: Set<UUID>) {
-        if document.removeAll(ids: ids) {
-            persist()
+        let removed = document.removeAll(ids: ids)
+        guard !removed.isEmpty else { return }
+        deletedBatches.append(removed)
+        if deletedBatches.count > Self.undoDepth {
+            deletedBatches.removeFirst()
         }
+        persist()
+    }
+
+    /// Restores the most recent deleted batch and returns the restored items,
+    /// empty when there is nothing to undo. Recorded indices are always
+    /// valid: `lines` shrinks only through `delete(ids:)` (which always
+    /// records) or `applyExternalChange` (which clears the history), later
+    /// adds only append, and the depth cap evicts from the oldest end.
+    public func undoDelete() -> [Item] {
+        guard let batch = deletedBatches.popLast() else { return [] }
+        // Ascending re-insert mirrors how the removals shifted later lines,
+        // so positions and interleaved verbatim lines come back exactly.
+        for entry in batch {
+            document.insert(entry.item, at: entry.index)
+        }
+        persist()
+        return batch.map(\.item)
     }
 
     public func setDone(ids: Set<UUID>, done: Bool) {

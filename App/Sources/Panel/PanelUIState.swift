@@ -18,8 +18,21 @@ final class PanelUIState {
     var captureHint = "Double-tap Shift to capture a selection"
     var onRequestPermission: (() -> Void)?
 
+    /// One-shot scroll request, consumed by the next list-count change —
+    /// unlike the 1 s highlight, it can't retarget a later, unrelated change.
+    private var scrollTargetID: UUID?
+
     private var toastTask: Task<Void, Never>?
     private var highlightTask: Task<Void, Never>?
+
+    func requestScroll(to id: UUID) {
+        scrollTargetID = id
+    }
+
+    func takeScrollTarget() -> UUID? {
+        defer { scrollTargetID = nil }
+        return scrollTargetID
+    }
 
     func showToast(_ message: String, for duration: Duration = .seconds(2)) {
         toast = message
