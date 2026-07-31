@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+    # ready_for_review added so leaving draft state re-runs the gate —
+    # Copilot doesn't review drafts, and the copilot-review job skips them.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 # The default token is write-scoped org-wide; with read-only permissions a
 # compromised dep in any job can't post a forged "CI Summary" status.
@@ -42,6 +45,46 @@ jobs:
           xcodebuild -project Pewter.xcodeproj -scheme Pewter
           -configuration Debug CODE_SIGNING_ALLOWED=NO build
 
+  # Holds the merge gate open until Copilot's review lands, so review
+  # feedback exists before the required check can pass — the repo ruleset's
+  # thread-resolution rule then keeps unaddressed comments blocking.
+  # Depends on the org ruleset's copilot_code_review rule with
+  # review_on_push enabled — the head-SHA match below needs a fresh review
+  # per push; without it every PR times out here.
+  copilot-review:
+    name: Copilot review posted
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Wait for Copilot review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          DRAFT: ${{ github.event.pull_request.draft }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Pushes to main have no PR; Copilot skips drafts; Renovate PRs
+          # aren't Copilot-reviewed and must keep automerging. The bot
+          # patterns are quoted — unquoted, [bot] is a bracket expression.
+          if [ -z "$PR" ] || [ "$DRAFT" = "true" ]; then exit 0; fi
+          case "$AUTHOR" in 'renovate[bot]'|'dependabot[bot]') exit 0 ;; esac
+          for _ in $(seq 1 40); do
+            # The review must be for the current head — a stale review from
+            # an earlier push must not satisfy the gate. Paginated because
+            # review_on_push accumulates one review per push, oldest first.
+            # Transient API failures wait for the next tick instead of
+            # failing the check.
+            count=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/reviews?per_page=100" \
+              --jq '.[] | select(.commit_id == env.HEAD_SHA and (.user.login | ascii_downcase | contains("copilot"))) | .id' \
+              | wc -l) || count=0
+            if [ "${count:-0}" -gt 0 ]; then exit 0; fi
+            sleep 15
+          done
+          echo "No Copilot review after 10 minutes; re-run this job once it posts"
+          exit 1
+
   # Fan-in gate: the one required status check, so the branch ruleset never
   # names individual jobs. Every job in this workflow must be listed in
   # `needs` — an omitted job is invisible to the gate.
@@ -51,7 +94,7 @@ jobs:
     # always(), not !cancelled(): a skipped required check counts as
     # satisfied, so cancellation must yield a red X here, not a skip.
     if: always()
-    needs: [build-and-test]
+    needs: [build-and-test, copilot-review]
     steps:
       - name: Summarize results
         run: |
@@ -60,6 +103,7 @@ jobs:
           echo "| Job | Status | Required |" >> "$GITHUB_STEP_SUMMARY"
           echo "| --- | --- | --- |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Build and test | \`${{ needs.build-and-test.result }}\` | ✅ Yes |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Copilot review posted | \`${{ needs.copilot-review.result }}\` | ✅ Yes |" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = "true" ]; then
             echo "One or more required jobs did not succeed: ${{ join(needs.*.result, ', ') }}"
