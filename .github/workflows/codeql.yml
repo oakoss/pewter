@@ -27,19 +27,26 @@ jobs:
     # build mode compiles the app target, which pulls in Core too.
     name: Analyze (swift)
     runs-on: macos-26
+    timeout-minutes: 45
     permissions:
       contents: read
       security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # Nothing after checkout needs git auth; keep the token out of
+          # .git/config.
+          persist-credentials: false
 
       # Tool install stays above init so the CodeQL trace window contains
-      # only the app build — a source-built xcodegen would otherwise be
-      # extracted into the database alongside Pewter's own code.
+      # only the app build — tools built from source during the trace would
+      # be extracted into the database alongside Pewter's own code.
       - name: Install tools
-        run: |
-          brew untap aws/tap || true
-          brew install xcodegen
+        uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
+        with:
+          # This job needs nothing else; the full toolchain would be dead
+          # weight inside the one job holding security-events: write.
+          install_args: xcodegen
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
@@ -49,9 +56,9 @@ jobs:
           queries: security-extended
 
       - name: Build app
-        run: |
-          xcodegen generate
-          xcodebuild -project Pewter.xcodeproj -scheme Pewter -configuration Debug CODE_SIGNING_ALLOWED=NO build
+        # make build runs xcodegen first; both execute inside the CodeQL
+        # trace window, which only extracts the Swift compilation.
+        run: make build XCODE_SETTINGS='CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO'
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4

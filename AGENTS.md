@@ -9,13 +9,14 @@ make gen      # regenerate Pewter.xcodeproj from project.yml (xcodegen)
 make build    # build the app (pass-through signing via Makefile.local)
 make test     # Core unit tests: swift test --package-path Core
 make format   # swiftformat
-make lint     # swiftformat --lint
+make lint     # swiftformat, markdownlint, actionlint, zizmor
 make run      # build and launch
 ```
 
 Git hooks are managed by lefthook (`lefthook install` after clone; tools come
-from `mise.toml`). Pre-commit runs swiftformat and markdownlint on staged
-files and the beads sync hook; commit-msg enforces Conventional Commits via
+from `mise.toml`). Pre-commit runs swiftformat on staged Swift, markdownlint
+on staged markdown, actionlint and zizmor on staged workflows, and the beads
+sync hook; commit-msg enforces Conventional Commits via
 commitlint (`type(scope): subject`); the scope list in `.commitlintrc.yml`
 feeds czg's prompt, not the linter. Pre-push runs the Core tests.
 
