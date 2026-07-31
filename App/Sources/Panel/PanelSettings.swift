@@ -4,7 +4,7 @@ import PewterCore
 /// Panel preferences persisted in UserDefaults; read at action time, so no
 /// observation plumbing is needed.
 enum PanelSettings {
-    private static let listCopyStyleKey = "listCopyStyle"
+    private static let listCopyStyleKey = "panelListCopyStyle"
 
     static var listCopyStyle: ItemFormatter.ListStyle {
         get {
