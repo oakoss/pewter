@@ -5,10 +5,11 @@
 ```sh
 mise install            # xcodegen, swiftformat, lefthook, actionlint, zizmor, markdownlint-cli2, commitlint, czg
 lefthook install        # git hooks: format/lint on commit, commit-msg lint, tests on push
-make gen                # generate Pewter.xcodeproj
-make build              # CLI build into build/
-make test               # Core package unit tests
-make run                # build + launch
+mise run gen            # generate Pewter.xcodeproj
+mise run build          # CLI build into build/
+mise run test           # Core package unit tests
+mise run run            # build + relaunch
+mise run ci             # lint + test + build in parallel
 ```
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org)
@@ -38,12 +39,17 @@ Things that will bite you:
    account — but each build gets a new signature, and TCC silently invalidates
    the grant: the checkbox in System Settings stays on while
    `AXIsProcessTrusted()` returns false. To work on the capture pipeline, use
-   a real (free) Apple Development certificate via the Makefile's SIGNING
-   pass-through (env vars and Xcode pane edits do NOT work — the pane is wiped
-   by `make gen`, and env vars lose to project.yml):
-   `make build SIGNING='CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development" DEVELOPMENT_TEAM=<your team id>'`
-   — or persist it in an untracked `Makefile.local` (`SIGNING := …`) so every
-   build is signed. Your team id is the OU field shown by
+   a real (free) Apple Development certificate via the build task's SIGNING
+   pass-through (Xcode pane edits do NOT work — the pane is wiped by
+   `mise run gen`). Persist it in an untracked `mise.local.toml` so every
+   build is signed:
+
+   ```toml
+   [env]
+   SIGNING = 'CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development" DEVELOPMENT_TEAM=<your team id>'
+   ```
+
+   Your team id is the OU field shown by
    `security find-certificate -c "Apple Development" -p | openssl x509 -noout -subject`.
    If `security find-identity -v -p codesigning` says the cert is invalid,
    you're likely missing Apple's WWDR G3 intermediate — download it from
@@ -51,7 +57,7 @@ Things that will bite you:
    keychain.
 2. **Unwedge a stale grant** with
    `tccutil reset Accessibility com.oakoss.Pewter`, then re-grant.
-3. **Run from a stable path.** `make run` uses a fixed derived-data path
+3. **Run from a stable path.** `mise run run` uses a fixed derived-data path
    (`build/`) so TCC doesn't accumulate entries for changing locations.
 4. **Global monitors registered before the grant never fire** — no error,
    nothing. The app re-registers after the grant lands; keep that behavior if
@@ -84,6 +90,6 @@ is the whole style discussion.
 
 ## Testing
 
-- Everything in `Core/` needs unit tests (Swift Testing, `make test`).
+- Everything in `Core/` needs unit tests (Swift Testing, `mise run test`).
 - AX reads, CGEvent posting, and TCC can't run in CI — cover changes to those
   with the checklist in `docs/manual-testing.md` and say so in your PR.

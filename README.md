@@ -23,8 +23,8 @@ Build from source (for now):
 ```sh
 git clone https://github.com/oakoss/pewter.git
 cd pewter
-mise install        # or: brew install xcodegen swiftformat
-make run
+mise install        # pinned toolchain (xcodegen, swiftformat, ...)
+mise run run        # build + launch
 ```
 
 Requires macOS 14+ and Xcode.
@@ -55,10 +55,10 @@ tools at it. Pewter picks up external changes automatically.
 ## Development
 
 ```sh
-make gen     # generate Pewter.xcodeproj (XcodeGen)
-make build   # CLI build
-make test    # Core package unit tests
-make run     # build + launch
+mise run gen     # generate Pewter.xcodeproj (XcodeGen)
+mise run build   # CLI build
+mise run test    # Core package unit tests
+mise run run     # build + relaunch
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the signing/TCC gotchas before

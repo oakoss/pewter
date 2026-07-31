@@ -39,23 +39,26 @@ jobs:
         # what local dev runs, and Renovate bumps both at once.
         uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
 
-      # Steps run the Makefile targets so CI and local dev can't drift on
-      # what "lint", "test", and "build" mean.
+      # Steps run the mise tasks so CI and local dev can't drift on what
+      # "lint", "test", and "build" mean.
       - name: Lint
-        # ZIZMOR_FLAGS= drops the local default --offline: with a token
+        # Empty ZIZMOR_FLAGS drops the local default --offline: with a token
         # zizmor's online audits (known-vulnerable-actions, stale refs) also
         # cover Renovate digest bumps and web-UI edits that skip the hook.
         env:
           GH_TOKEN: ${{ github.token }}
-        run: make lint ZIZMOR_FLAGS=
+          ZIZMOR_FLAGS: ""
+        run: mise run lint
 
       - name: Core tests
-        run: make test
+        run: mise run test
 
       - name: Build app
         # Unsigned, and CI has no use for the source index Xcode builds for
         # IDE features.
-        run: make build XCODE_SETTINGS='CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO'
+        env:
+          XCODE_SETTINGS: CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO
+        run: mise run build
 
   # Holds the merge gate open until Copilot's review lands, so review
   # feedback exists before the required check can pass — the repo ruleset's

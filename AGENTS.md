@@ -5,12 +5,13 @@ Single source of agent instructions for this repo; `CLAUDE.md` imports it.
 ## Build & Test
 
 ```bash
-make gen      # regenerate Pewter.xcodeproj from project.yml (xcodegen)
-make build    # build the app (pass-through signing via Makefile.local)
-make test     # Core unit tests: swift test --package-path Core
-make format   # swiftformat
-make lint     # swiftformat, markdownlint, actionlint, zizmor
-make run      # build and launch
+mise run gen      # regenerate Pewter.xcodeproj from project.yml (xcodegen)
+mise run build    # build the app (pass-through signing via mise.local.toml)
+mise run test     # Core unit tests: swift test --package-path Core
+mise run format   # swiftformat + markdownlint --fix
+mise run lint     # swiftformat, markdownlint, actionlint, zizmor
+mise run ci       # lint + test + build in parallel (pre-push check)
+mise run run      # build and relaunch
 ```
 
 Git hooks are managed by lefthook (`lefthook install` after clone; tools come

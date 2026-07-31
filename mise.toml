@@ -9,3 +9,71 @@ node = "24.18.0"
 "npm:markdownlint-cli2" = "0.23.2"
 "npm:commitlint" = "21.2.1"
 "npm:czg" = "1.13.1"
+
+# Optional signing override for capture-pipeline work (see CONTRIBUTING.md):
+# set SIGNING in untracked mise.local.toml, e.g.
+#   [env]
+#   SIGNING = 'CODE_SIGN_STYLE=Automatic CODE_SIGN_IDENTITY="Apple Development" DEVELOPMENT_TEAM=YOURTEAMID'
+# Command-line build settings override project.yml; env vars do not.
+# CI appends CODE_SIGNING_ALLOWED=NO etc. via XCODE_SETTINGS the same way.
+
+[tasks.ci]
+description = "Everything CI runs: lint, test, and build, in parallel"
+depends = ["lint", "test", "build"]
+
+[tasks.gen]
+description = "Regenerate Pewter.xcodeproj from project.yml"
+run = "xcodegen generate"
+# xcodegen globs the App tree, so the project depends on it, not just
+# project.yml — sources listing only project.yml would silently skip
+# regeneration when files are added or removed.
+sources = ["project.yml", "App/Sources/**/*", "App/Resources/**/*"]
+outputs = ["Pewter.xcodeproj/project.pbxproj"]
+
+[tasks.build]
+alias = "b"
+description = "Build the app (Debug, into build/)"
+depends = ["gen"]
+# eval so quoted values inside $SIGNING ('CODE_SIGN_IDENTITY="Apple
+# Development"') reach xcodebuild as one argument — plain expansion
+# happens after quote parsing and would split them.
+run = 'eval xcodebuild -project Pewter.xcodeproj -scheme Pewter -configuration Debug -derivedDataPath build "$SIGNING" "$XCODE_SETTINGS" build'
+
+[tasks.test]
+alias = "t"
+description = "Core package unit tests"
+run = "swift test --package-path Core"
+
+[tasks.run]
+description = "Build and (re)launch the app"
+depends = ["build"]
+# open won't replace a running instance; kill it or the fresh build
+# silently never launches.
+run = [
+  "killall Pewter 2>/dev/null || true",
+  "open build/Build/Products/Debug/Pewter.app",
+]
+
+[tasks.format]
+alias = "f"
+description = "Fix Swift and markdown formatting"
+run = [
+  "swiftformat .",
+  'markdownlint-cli2 --fix "**/*.md"',
+]
+
+[tasks.lint]
+alias = "l"
+description = "Check Swift, markdown, and workflow files"
+# ${ZIZMOR_FLAGS---offline}: --offline unless the caller sets the var —
+# CI sets it empty so zizmor's online audits run there.
+run = [
+  "swiftformat --lint .",
+  'markdownlint-cli2 "**/*.md"',
+  "actionlint",
+  "zizmor ${ZIZMOR_FLAGS---offline} .github/workflows",
+]
+
+[tasks.clean]
+description = "Remove generated project and build products"
+run = "rm -rf build Pewter.xcodeproj Core/.build"
