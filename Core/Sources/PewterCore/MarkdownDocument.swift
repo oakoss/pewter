@@ -60,7 +60,8 @@ public struct MarkdownDocument: Equatable, Sendable {
         public let item: Item
     }
 
-    /// - Precondition: `index <= lines.count` — traps like `Array.insert`.
+    /// - Precondition: `0 <= index <= lines.count` — traps like
+    ///   `Array.insert`.
     public mutating func insert(_ item: Item, at index: Int) {
         lines.insert(.item(item), at: index)
     }
