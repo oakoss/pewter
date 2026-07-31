@@ -61,6 +61,10 @@ or the status item / panel / window layer.
 - [ ] Right-click the status item → menu opens just below the menu bar like
       other system menus, aligned with the icon, with every item visible —
       "Reveal Notes File in Finder" first, no scroll chevron at the top
+- [ ] Copy as List Style submenu switches the copy format between numbered
+      (1. 2. 3., the default), bulleted (-), and task list (- [ ]); the
+      choice persists across relaunch and applies to both Cmd+Shift+C and
+      the context menu's Copy as List
 - [ ] Status item near the right screen edge (Cmd-drag it as far right as it
       goes) → menu stays fully on screen
 - [ ] Quit the app, then relaunch it right-to-left:
@@ -75,11 +79,54 @@ or the status item / panel / window layer.
 - [ ] Typing in the panel does NOT deactivate the frontmost app (its title bar
       stays active)
 - [ ] Panel floats above a full-screen app and follows across Spaces
-- [ ] Esc: clears search if non-empty, else hides the panel
+- [ ] Esc: clears a multi-selection if one exists, else clears search if
+      non-empty, else hides the panel (capture → Esc still hides in one
+      press despite the new note being selected)
 - [ ] Keyboard: ↑/↓ select, Space toggles, Enter edits, Delete removes,
       Cmd+C copies item, Cmd+Shift+C copies list, Cmd+F focuses search
 - [ ] Hover a row → copy button appears on the right; click copies (brief
       checkmark); ⌥-click copies AND marks done (already-done items stay done)
+- [ ] Select rows, then click into another app so it becomes frontmost —
+      while it is still frontmost, look at the panel: selected rows keep the
+      full accent fill, not just the outline (the panel never activates the
+      app, so selection styling must not depend on app-active state)
+- [ ] After that app has keyboard focus, click a row (not a text field) in
+      the panel → Cmd+C copies from the panel again; the keystroke must not
+      leak into the other app, and no status-item re-toggle is needed
+
+## Multi-select
+
+- [ ] Cmd+click adds/removes rows from the selection; Shift+click selects the
+      range from the anchor — the last row you plain- or Cmd+clicked; plain
+      click collapses to one
+- [ ] Shift+↑/↓ extends the selection; crossing the starting row flips the
+      range direction; plain ↑/↓ collapses to a single row again
+- [ ] Cmd+A (list focused) selects all visible rows; with a filter active it
+      selects only the matches
+- [ ] Cmd+A while the search or quick-add field is focused selects the
+      field's text and leaves the note selection alone
+- [ ] Right-click Delete on an unselected row removes only it and leaves the
+      existing multi-selection in place
+- [ ] With several rows selected: Space marks all done (mixed selection
+      converges; pressing again marks all not done); Delete removes them all
+      and selects the nearest surviving neighbor
+- [ ] Cmd+C with a multi-selection copies the notes separated by blank lines;
+      Cmd+Shift+C copies just the selection as a list (single/no selection
+      still copies the whole visible list)
+- [ ] Right-click on a selected row → Copy / Copy as List / Mark as Done /
+      Delete act on the whole selection; right-click on an unselected row
+      acts on that row alone
+- [ ] Checkbox and hover-copy-button always act on their own row, even when
+      it is part of a multi-selection
+- [ ] Changing the search filter drops now-hidden rows from the selection
+- [ ] Clicking empty space in the list (below the rows) clears the selection
+- [ ] Clicking into the composer ("Add a note or a prompt…") clears the
+      selection; the note added on Return is selected as feedback
+- [ ] Double-click a row → it enters edit mode and stays there (the
+      single-click selection fires first and must not tear the editor back
+      down); Esc cancels, Return commits
+- [ ] Click a row, then press Space or Delete without any other click →
+      they act on that row (a row click arms the list shortcuts)
 
 ## Storage
 

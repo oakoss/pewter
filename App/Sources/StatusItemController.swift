@@ -1,4 +1,5 @@
 import AppKit
+import PewterCore
 
 @MainActor
 final class StatusItemController: NSObject {
@@ -104,6 +105,18 @@ final class StatusItemController: NSObject {
         chordItem.submenu = chordMenu
         menu.addItem(chordItem)
 
+        let listStyleMenu = NSMenu()
+        for style in ItemFormatter.ListStyle.allCases {
+            let item = NSMenuItem(title: style.menuTitle, action: #selector(selectListStyle(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = style.rawValue
+            item.state = style == PanelSettings.listCopyStyle ? .on : .off
+            listStyleMenu.addItem(item)
+        }
+        let listStyleItem = NSMenuItem(title: "Copy as List Style", action: nil, keyEquivalent: "")
+        listStyleItem.submenu = listStyleMenu
+        menu.addItem(listStyleItem)
+
         let permissions = NSMenuItem(title: "Permissions…", action: #selector(showPermissions), keyEquivalent: "")
         permissions.target = self
         menu.addItem(permissions)
@@ -170,5 +183,17 @@ final class StatusItemController: NSObject {
             return
         }
         onSelectChordHotKey(chord)
+    }
+
+    @objc private func selectListStyle(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let style = ItemFormatter.ListStyle(rawValue: raw)
+        else {
+            assertionFailure("menu item carried an unknown list style")
+            return
+        }
+        // Written directly rather than routed through AppDelegate: unlike the
+        // capture triggers, nothing needs re-arming when this changes.
+        PanelSettings.listCopyStyle = style
     }
 }

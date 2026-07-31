@@ -72,7 +72,7 @@ struct MarkdownDocumentTests {
         #expect(document.serialized().contains("- [x] first"))
         #expect(document.lines.count == 3)
 
-        document.remove(id: document.items[1].id)
+        document.removeAll(ids: [document.items[1].id])
         #expect(document.items.count == 1)
         #expect(document.lines.count == 2)
     }

@@ -55,10 +55,27 @@ public struct MarkdownDocument: Equatable, Sendable {
     }
 
     @discardableResult
-    public mutating func remove(id: UUID) -> Bool {
-        guard let index = index(of: id) else { return false }
-        lines.remove(at: index)
-        return true
+    public mutating func removeAll(ids: Set<UUID>) -> Bool {
+        let before = lines.count
+        lines.removeAll {
+            if case let .item(item) = $0 {
+                return ids.contains(item.id)
+            }
+            return false
+        }
+        return lines.count != before
+    }
+
+    @discardableResult
+    public mutating func setDone(ids: Set<UUID>, done: Bool) -> Bool {
+        var changed = false
+        for index in lines.indices {
+            guard case var .item(item) = lines[index], ids.contains(item.id), item.done != done else { continue }
+            item.done = done
+            lines[index] = .item(item)
+            changed = true
+        }
+        return changed
     }
 
     private func index(of id: UUID) -> Int? {
