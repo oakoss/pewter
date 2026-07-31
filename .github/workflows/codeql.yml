@@ -1,8 +1,11 @@
 name: CodeQL
 
-# Analysis only sees compiled Swift, so config-only changes skip it; the
-# weekly cron still scans everything regardless of paths. Safe to filter
-# because this is an advisory check, not a required one.
+# No pull_request trigger: the Swift analysis takes 20-25 minutes (a full
+# instrumented rebuild) and the check is advisory, so it runs after merge
+# instead of on every PR push. Every merged commit that touches Swift is
+# still scanned, with alerts on main minutes after landing. Analysis only
+# sees compiled Swift, so config-only pushes skip it; the weekly cron
+# scans everything regardless of paths.
 on:
   push:
     branches: [main]
@@ -11,20 +14,8 @@ on:
       - "Core/**"
       - "project.yml"
       - ".github/workflows/codeql.yml"
-  pull_request:
-    paths:
-      - "App/**"
-      - "Core/**"
-      - "project.yml"
-      - ".github/workflows/codeql.yml"
   schedule:
     - cron: "30 9 * * 1"
-
-# Cancel superseded PR runs only: the cron scan shares main's group, and
-# cancelling it would drop the full-scan safety net until the next week.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
