@@ -77,3 +77,23 @@ run = [
 [tasks.clean]
 description = "Remove generated project and build products"
 run = "rm -rf build Pewter.xcodeproj Core/.build"
+
+[tasks.icon]
+description = "Render AppIcon.appiconset PNGs from App/AppIcon.svg"
+# The alpha assertion exists because a filter primitive the renderer
+# doesn't implement silently yields fully transparent output — a blank
+# icon passes every downstream build check.
+run = """
+set -e
+dest=App/Resources/Assets.xcassets/AppIcon.appiconset
+for px in 16 32 64 128 256 512 1024; do
+  inkscape App/AppIcon.svg -w "$px" -h "$px" -o "$dest/icon_${px}.png"
+done
+swift -e 'import AppKit
+let path = "App/Resources/Assets.xcassets/AppIcon.appiconset/icon_1024.png"
+let rep = NSBitmapImageRep(data: try! Data(contentsOf: URL(fileURLWithPath: path)))!
+guard let c = rep.colorAt(x: 512, y: 512), c.alphaComponent > 0.5 else {
+  fatalError("transparent render — check the SVG filters")
+}
+print("alpha check passed")'
+"""

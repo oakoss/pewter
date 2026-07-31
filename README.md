@@ -1,3 +1,6 @@
+<!-- markdownlint-disable MD033 MD041 -- the sized header image needs HTML -->
+<img src="App/Resources/Assets.xcassets/AppIcon.appiconset/icon_256.png" width="128" height="128" alt="Pewter app icon: capture brackets around a checkmark">
+
 # Pewter
 
 A tiny menubar scratchpad for AI-assisted work. Double-tap **Shift** to capture
