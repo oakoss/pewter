@@ -158,12 +158,28 @@ public final class ListStore {
         setDone(ids: ids, done: !allDone(ids: ids))
     }
 
-    public func filtered(query: String) -> [Item] {
+    /// Sections narrowed to `query`. A section whose heading matches is
+    /// returned whole — the match is the group itself, and hiding notes under
+    /// a matched header would make search miss text visible on screen.
+    /// Otherwise a section keeps only its matching items, and drops entirely
+    /// when nothing matches. An empty query returns every section, empty
+    /// ones included.
+    public func sections(matching query: String) -> [MarkdownDocument.Section] {
         let trimmed = query.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return items }
-        return items.filter {
-            $0.text.range(of: trimmed, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+        let sections = document.sections
+        guard !trimmed.isEmpty else { return sections }
+        return sections.compactMap { section in
+            if let heading = section.heading, Self.matches(heading, trimmed) {
+                return section
+            }
+            let matches = section.items.filter { Self.matches($0.text, trimmed) }
+            guard !matches.isEmpty else { return nil }
+            return MarkdownDocument.Section(id: section.id, heading: section.heading, items: matches)
         }
+    }
+
+    private static func matches(_ text: String, _ trimmedQuery: String) -> Bool {
+        text.range(of: trimmedQuery, options: [.caseInsensitive, .diacriticInsensitive]) != nil
     }
 
     public func flush() {

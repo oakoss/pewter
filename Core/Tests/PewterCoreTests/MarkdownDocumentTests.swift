@@ -36,7 +36,7 @@ struct MarkdownDocumentTests {
         let document = MarkdownDocument.parse(source)
 
         #expect(document.lines.count == 4)
-        #expect(document.lines[0] == .verbatim("## Research"))
+        #expect(document.lines[0] == .heading(SectionHeading(raw: "## Research", title: "Research")))
         #expect(document.lines[1] == .verbatim(""))
         #expect(document.lines[3] == .verbatim("some stray prose"))
 
@@ -160,6 +160,104 @@ struct MarkdownDocumentTests {
         #expect(document.items.map(\.text) == ["task"])
         #expect(document.lines.count == 2)
         #expect(document.serialized().contains("\ttabbed line"))
+    }
+
+    @Test func sectionsGroupItemsUnderHeadings() {
+        let source = """
+        - [ ] loose note
+        ## Research
+        - [ ] read paper
+        - [x] skim thread
+        ## Someday
+        ## Config
+        - [ ] tweak settings
+        """
+        let sections = MarkdownDocument.parse(source).sections
+
+        #expect(sections.map(\.heading) == [nil, "Research", "Someday", "Config"])
+        #expect(sections.map { $0.items.map(\.text) } ==
+            [["loose note"], ["read paper", "skim thread"], [], ["tweak settings"]])
+    }
+
+    @Test func documentWithoutHeadingsIsOneUnnamedSection() {
+        let sections = MarkdownDocument.parse("- [ ] a\n- [ ] b\n").sections
+        #expect(sections.map(\.heading) == [nil])
+        #expect(sections[0].items.map(\.text) == ["a", "b"])
+    }
+
+    @Test func emptyPreambleYieldsNoUnnamedSection() {
+        #expect(MarkdownDocument().sections.isEmpty)
+        let sections = MarkdownDocument.parse("## First\n- [ ] a\n").sections
+        #expect(sections.map(\.heading) == ["First"])
+    }
+
+    @Test func onlyLevelTwoHeadingsStartSections() {
+        let source = """
+        # Title
+        - [ ] under title
+        ### Deep
+        - [ ] under deep
+        ## Real
+        - [ ] grouped
+        """
+        let sections = MarkdownDocument.parse(source).sections
+
+        #expect(sections.map(\.heading) == [nil, "Real"])
+        #expect(sections[0].items.map(\.text) == ["under title", "under deep"])
+    }
+
+    @Test func headingTitlesTrimSurroundingSpaces() {
+        let document = MarkdownDocument.parse("##   Spaced Out   \n")
+        #expect(document.sections.map(\.heading) == ["Spaced Out"])
+        // Display trims; the file keeps the author's bytes.
+        #expect(document.serialized() == "##   Spaced Out   \n")
+    }
+
+    @Test func headingIdsAreStableAcrossReparse() {
+        // An external reload re-parses the file; unchanged headings must keep
+        // their identity or every section's rows rebuild and lose state.
+        let source = "## A\n- [ ] one\n## Inbox\n## Inbox\n"
+        let first = MarkdownDocument.parse(source)
+        let second = MarkdownDocument.parse(source)
+
+        #expect(first.sections.map(\.id) == second.sections.map(\.id))
+        #expect(Set(first.sections.map(\.id)).count == 3)
+    }
+
+    @Test func sectionIdentityIsStableAcrossMutations() {
+        var document = MarkdownDocument.parse("## A\n- [ ] one\n## B\n- [ ] two\n")
+        let ids = document.sections.map(\.id)
+        #expect(Set(ids).count == 2)
+
+        var first = document.items[0]
+        first.done = true
+        document.update(first)
+        document.append(Item(text: "three"))
+
+        #expect(document.sections.map(\.id) == ids)
+    }
+
+    @Test func whitespaceOnlyHeadingLineDoesNotStartSection() {
+        let sections = MarkdownDocument.parse("##   \n- [ ] a\n").sections
+        #expect(sections.map(\.heading) == [nil])
+    }
+
+    @Test func nearMissHeadingLinesStayVerbatim() {
+        #expect(MarkdownDocument.parse("##NoSpace\n- [ ] a\n").sections.map(\.heading) == [nil])
+        #expect(MarkdownDocument.parse("  ## Indented\n- [ ] a\n").sections.map(\.heading) == [nil])
+    }
+
+    @Test func duplicateHeadingTitlesStayDistinctSections() {
+        let source = """
+        ## Inbox
+        - [ ] a
+        ## Inbox
+        - [ ] b
+        """
+        let sections = MarkdownDocument.parse(source).sections
+        #expect(sections.map(\.heading) == ["Inbox", "Inbox"])
+        #expect(sections.map { $0.items.map(\.text) } == [["a"], ["b"]])
+        #expect(Set(sections.map(\.id)).count == 2)
     }
 
     @Test func validIdWithGarbageDateKeepsIdResetsDate() {

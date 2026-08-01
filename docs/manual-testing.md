@@ -199,6 +199,36 @@ or the status item / panel / window layer.
       the panel → Cmd+C copies from the panel again; the keystroke must not
       leak into the other app, and no status-item re-toggle is needed
 
+## Sections
+
+- [ ] Add `## Research` and `## Config` heading lines to the notes file in an
+      external editor, with notes under each → the panel groups the notes
+      under uppercase section headers in file order; notes above the first
+      heading render first, without a header
+- [ ] A heading with no notes under it still shows its header
+- [ ] `# Title` and `### Deep` lines do NOT create sections
+- [ ] Search: a query matching a section's name shows that whole section
+      (all its notes); otherwise only sections with matching notes keep
+      their header, narrowed to those notes; clearing the search restores
+      all sections
+- [ ] Search matching only an empty section's name shows that header alone —
+      no "No matches" beneath it
+- [ ] Headings keep their original casing in the file (uppercase is
+      display-only); adding/completing/deleting notes leaves heading lines
+      untouched
+- [ ] Keyboard: ↑/↓ walk rows straight across section boundaries; Cmd+A
+      selects rows in every section
+- [ ] With sections present: Cmd+Z after a delete and after a merge still
+      scrolls to and flashes the restored/merged note (rows sit one ForEach
+      level deeper, so reveal-by-id is worth re-checking)
+- [ ] Quick-add and capture append to the end of the file, so with headings
+      present new notes land under the last section (expected for now —
+      routing to a chosen section is separate upcoming work)
+- [ ] With headings present, start editing a note inline, then edit a
+      DIFFERENT part of the notes file externally → the reload keeps the
+      row's uncommitted edit text and focus (section identity must survive
+      a re-parse)
+
 ## Multi-select
 
 - [ ] Cmd+click adds/removes rows from the selection; Shift+click selects the
