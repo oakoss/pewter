@@ -7,7 +7,15 @@ public final class ListStore {
     public private(set) var document: MarkdownDocument
     private let storage: FileStorage?
 
-    private var deletedBatches: [[MarkdownDocument.RemovedItem]] = []
+    /// One undoable mutation: the lines it removed, plus any line it
+    /// inserted (merge). Undo removes the inserted ids first, then
+    /// re-inserts the removals at their recorded indices.
+    private struct UndoBatch {
+        var removed: [MarkdownDocument.RemovedItem]
+        var insertedIDs: Set<UUID> = []
+    }
+
+    private var deletedBatches: [UndoBatch] = []
     private static let undoDepth = 10
 
     public var items: [Item] {
@@ -74,27 +82,61 @@ public final class ListStore {
     public func delete(ids: Set<UUID>) {
         let removed = document.removeAll(ids: ids)
         guard !removed.isEmpty else { return }
-        deletedBatches.append(removed)
-        if deletedBatches.count > Self.undoDepth {
-            deletedBatches.removeFirst()
-        }
+        recordUndo(UndoBatch(removed: removed))
         persist()
     }
 
-    /// Restores the most recent deleted batch and returns the restored items,
-    /// empty when there is nothing to undo. Recorded indices are always
-    /// valid: `lines` shrinks only through `delete(ids:)` (which always
-    /// records) or `applyExternalChange` (which clears the history), later
-    /// adds only append, and the depth cap evicts from the oldest end.
+    /// Merges the given items into one note at the earliest one's position,
+    /// joining texts in document order — selection order must not matter.
+    /// Blank-line separator per nickel's merge; document order over
+    /// createdAt is deliberate — a hand-reordered file wins. The merged
+    /// note keeps the first item's identity and is done only when every
+    /// source was done. Undoable as a single batch.
+    @discardableResult
+    public func merge(ids: Set<UUID>) -> Item? {
+        let sources = items.filter { ids.contains($0.id) }
+        guard sources.count >= 2, let first = sources.first else { return nil }
+        let merged = Item(
+            id: first.id,
+            text: sources.map(\.text).joined(separator: "\n\n"),
+            done: sources.allSatisfy(\.done),
+            createdAt: first.createdAt
+        )
+        let removed = document.removeAll(ids: ids)
+        guard let index = removed.first?.index else { return nil }
+        document.insert(merged, at: index)
+        recordUndo(UndoBatch(removed: removed, insertedIDs: [merged.id]))
+        persist()
+        return merged
+    }
+
+    private func recordUndo(_ batch: UndoBatch) {
+        deletedBatches.append(batch)
+        if deletedBatches.count > Self.undoDepth {
+            deletedBatches.removeFirst()
+        }
+    }
+
+    /// Restores the most recent batch and returns the restored items, empty
+    /// when there is nothing to undo. Recorded indices are always valid:
+    /// `lines` shrinks only through `delete(ids:)` and `merge(ids:)` (which
+    /// always record) or `applyExternalChange` (which clears the history),
+    /// later adds only append, LIFO undo replays states in reverse, and the
+    /// depth cap evicts from the oldest end. Removing a merge's inserted
+    /// line first restores the exact line count its indices were recorded
+    /// against.
     public func undoDelete() -> [Item] {
         guard let batch = deletedBatches.popLast() else { return [] }
+        if !batch.insertedIDs.isEmpty {
+            _ = document.removeAll(ids: batch.insertedIDs)
+        }
         // Ascending re-insert mirrors how the removals shifted later lines,
         // so positions and interleaved verbatim lines come back exactly.
-        for entry in batch {
+        for entry in batch.removed {
             document.insert(entry.item, at: entry.index)
         }
         persist()
-        return batch.map(\.item)
+        return batch.removed.map(\.item)
     }
 
     public func setDone(ids: Set<UUID>, done: Bool) {

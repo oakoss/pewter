@@ -24,6 +24,107 @@ struct ListStoreTests {
         #expect(store.items.isEmpty)
     }
 
+    @Test func mergeJoinsInDocumentOrderAtFirstPosition() throws {
+        let store = ListStore()
+        let a = try #require(store.add(text: "first"))
+        let b = try #require(store.add(text: "second"))
+        let c = try #require(store.add(text: "third"))
+
+        // Set input: document order must win regardless of selection order.
+        let merged = try #require(store.merge(ids: [c.id, a.id]))
+
+        #expect(merged.text == "first\n\nthird")
+        #expect(merged.id == a.id)
+        #expect(merged.createdAt == a.createdAt)
+        #expect(store.items.map(\.id) == [a.id, b.id])
+        #expect(store.items.first?.text == "first\n\nthird")
+    }
+
+    @Test func mergeIsDoneOnlyWhenAllSourcesWereDone() throws {
+        let store = ListStore()
+        let a = try #require(store.add(text: "one"))
+        let b = try #require(store.add(text: "two"))
+
+        store.setDone(ids: [a.id], done: true)
+        #expect(try #require(store.merge(ids: [a.id, b.id])).done == false)
+        _ = store.undoDelete()
+
+        store.setDone(ids: [a.id, b.id], done: true)
+        #expect(try #require(store.merge(ids: [a.id, b.id])).done == true)
+    }
+
+    @Test func mergeRequiresTwoExistingItems() throws {
+        let store = ListStore()
+        let a = try #require(store.add(text: "alone"))
+        #expect(store.merge(ids: [a.id]) == nil)
+        #expect(store.merge(ids: [a.id, UUID()]) == nil)
+        #expect(store.items.count == 1)
+    }
+
+    @Test func undoAfterMergeRestoresOriginalsExactly() throws {
+        let store = ListStore()
+        let a = try #require(store.add(text: "keep me"))
+        let b = try #require(store.add(text: "absorb me"))
+        let c = try #require(store.add(text: "bystander"))
+        store.setDone(ids: [b.id], done: true)
+        let before = store.document
+
+        _ = try #require(store.merge(ids: [a.id, b.id]))
+        let restored = store.undoDelete()
+
+        #expect(store.document == before)
+        #expect(Set(restored.map(\.id)) == Set([a.id, b.id]))
+        #expect(store.items.map(\.id) == [a.id, b.id, c.id])
+    }
+
+    @Test func undoOrderStaysLIFOAcrossMergeAndDelete() throws {
+        let store = ListStore()
+        let a = try #require(store.add(text: "a"))
+        let b = try #require(store.add(text: "b"))
+        let c = try #require(store.add(text: "c"))
+        let before = store.document
+
+        _ = try #require(store.merge(ids: [a.id, b.id]))
+        store.delete(ids: [c.id])
+
+        #expect(store.undoDelete().map(\.id) == [c.id])
+        _ = store.undoDelete()
+        #expect(store.document == before)
+    }
+
+    @Test func mergedMultiLineItemRoundTripsThroughSerialization() throws {
+        // Whole-second timestamps: ISO8601 metadata drops sub-second
+        // precision, so .now would fail the round-trip equality spuriously.
+        let created = Date(timeIntervalSince1970: 1_753_000_000)
+        let a = Item(id: UUID(), text: "one\n\nstill one", done: false, createdAt: created)
+        let b = Item(id: UUID(), text: "two", done: true, createdAt: created)
+        let store = ListStore(document: MarkdownDocument(lines: [
+            .item(a), .verbatim("## Heading"), .item(b),
+        ]))
+
+        let merged = try #require(store.merge(ids: [a.id, b.id]))
+        // Blank interior lines are the fragile serializer path: they emit
+        // unindented, unlike two-space-indented continuations.
+        let reparsed = MarkdownDocument.parse(store.document.serialized())
+
+        #expect(reparsed == store.document)
+        #expect(reparsed.items.first?.text == merged.text)
+        #expect(reparsed.lines.contains(.verbatim("## Heading")))
+    }
+
+    @Test func undoAfterMergeRoundTripsThroughSerialization() throws {
+        let created = Date(timeIntervalSince1970: 1_753_000_000)
+        let a = Item(id: UUID(), text: "alpha", done: false, createdAt: created)
+        let b = Item(id: UUID(), text: "beta\ngamma", done: false, createdAt: created)
+        let store = ListStore(document: MarkdownDocument(lines: [.item(a), .item(b)]))
+        let before = store.document
+
+        _ = try #require(store.merge(ids: [a.id, b.id]))
+        _ = store.undoDelete()
+
+        #expect(MarkdownDocument.parse(store.document.serialized()) == before)
+    }
+
     @Test func updatingToEmptyTextDeletes() throws {
         let store = ListStore()
         let item = try #require(store.add(text: "about to vanish"))
