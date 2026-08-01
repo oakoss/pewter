@@ -1,5 +1,6 @@
 import AppKit
 import os
+import PewterCore
 import SwiftUI
 
 @MainActor
@@ -27,15 +28,15 @@ final class PanelController {
         panel.isVisible
     }
 
-    func toggle(relativeTo statusButton: NSStatusBarButton?) {
+    func toggle(relativeTo statusButton: NSStatusBarButton?, onActiveScreen: Bool = false) {
         if panel.isVisible {
             hide()
         } else {
-            show(relativeTo: statusButton)
+            show(relativeTo: statusButton, onActiveScreen: onActiveScreen)
         }
     }
 
-    func show(relativeTo statusButton: NSStatusBarButton? = nil) {
+    func show(relativeTo statusButton: NSStatusBarButton? = nil, onActiveScreen: Bool = false) {
         // A corrupted autosaved frame (e.g. from a layout loop) must never
         // brick the panel; clamp anything implausible back to the default.
         if let screen = panel.screen ?? NSScreen.main,
@@ -59,12 +60,51 @@ final class PanelController {
             )
             panel.setFrameOrigin(constrained(origin, for: buttonWindow.screen))
         }
+        // Hotkey summons follow the user (Spotlight model): a saved frame
+        // sitting on another display is translated onto the active screen,
+        // keeping its offset. Status-item clicks keep the saved position —
+        // the click already happened on whichever screen the user chose.
+        if onActiveScreen, hasSavedFrame,
+           let target = Self.activeScreen(),
+           !target.frame.intersects(panel.frame)
+        {
+            let source = NSScreen.screens
+                .max(by: { intersectionArea($0) < intersectionArea($1) })
+                .flatMap { intersectionArea($0) > 0 ? $0.visibleFrame : nil }
+            let moved = PanelPlacement.translate(
+                frame: panel.frame,
+                // A frame on no screen at all (display unplugged mid-run)
+                // has no offset worth preserving; identity-translate so it
+                // just clamps back onto the target screen.
+                from: source ?? target.visibleFrame,
+                to: target.visibleFrame
+            )
+            panel.setFrame(moved, display: false)
+        }
         panel.orderFrontRegardless()
         panel.makeKey()
     }
 
     func hide() {
         panel.orderOut(nil)
+    }
+
+    /// The screen the user is working on. Mouse position is the only
+    /// permission-free signal: NSScreen.main is per-app and reports the
+    /// menu-bar screen while our panel is hidden, and reading the frontmost
+    /// app's key window would need the Accessibility grant this hotkey
+    /// deliberately works without. NSMouseInRect, not CGRect.contains — a
+    /// cursor parked on the top pixel row sits exactly at maxY, which
+    /// contains() excludes. nil (mouse on no screen) means the caller keeps
+    /// the saved position rather than guessing.
+    private static func activeScreen() -> NSScreen? {
+        let mouse = NSEvent.mouseLocation
+        return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
+    }
+
+    private func intersectionArea(_ screen: NSScreen) -> CGFloat {
+        let intersection = screen.frame.intersection(panel.frame)
+        return intersection.isNull ? 0 : intersection.width * intersection.height
     }
 
     private func constrained(_ origin: NSPoint, for screen: NSScreen?) -> NSPoint {

@@ -153,6 +153,18 @@ or the status item / panel / window layer.
 - [ ] Typing in the panel does NOT deactivate the frontmost app (its title bar
       stays active)
 - [ ] Panel floats above a full-screen app and follows across Spaces
+- [ ] Two displays: drag the panel to display A, hide it, move the mouse
+      to display B → the panel hotkey summons it onto display B at the
+      same offset from the top-left; hide it and summon again on A → back
+      at the original spot (round trip — exact only while the panel lands
+      fully inside both displays; if a move has to clamp, the clamped
+      frame becomes the new saved position)
+- [ ] Two displays: capture (double-tap or hotkey) with the mouse on
+      display B while the panel's saved frame is on A → the panel appears
+      on B with the new note highlighted
+- [ ] Two displays: with the panel's saved frame on A, clicking the status
+      item on either display shows it at its saved position on A (only the
+      hotkey follows the active screen)
 - [ ] Esc: clears a multi-selection if one exists, else clears search if
       non-empty, else hides the panel (capture → Esc still hides in one
       press despite the new note being selected)
