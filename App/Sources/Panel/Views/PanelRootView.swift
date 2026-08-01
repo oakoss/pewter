@@ -137,8 +137,30 @@ struct PanelRootView: View {
             TextField("Search", text: $uiState.query)
                 .textFieldStyle(.plain)
                 .focused($focus, equals: .search)
+            panelMenu
         }
         .padding(10)
+    }
+
+    /// Mirrors the status item's launcher menu — the status item's
+    /// right-click is the only other mouse path to these.
+    private var panelMenu: some View {
+        Menu {
+            Button("Settings…") { uiState.onOpenSettings?() }
+            Button("Reveal Notes File in Finder") { uiState.onRevealNotesFile?() }
+            Button("Permissions…") { uiState.onShowPermissions?() }
+            Divider()
+            Button("Quit Pewter") { NSApp.terminate(nil) }
+        } label: {
+            Image(systemName: "ellipsis")
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityLabel("More actions")
     }
 
     private func itemList(_ items: [Item]) -> some View {

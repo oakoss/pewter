@@ -17,6 +17,13 @@ final class PanelUIState {
     /// Empty-state hint reflecting the configured capture trigger.
     var captureHint = "Double-tap Shift to capture a selection"
     var onRequestPermission: (() -> Void)?
+    /// Launcher actions for the panel's ellipsis menu — the mouse path for
+    /// users who never discover the status item's right-click menu.
+    var onOpenSettings: (() -> Void)?
+    var onRevealNotesFile: (() -> Void)?
+    /// Unconditional, unlike onRequestPermission's showIfNeeded — a menu
+    /// item must open the window even when access is already granted.
+    var onShowPermissions: (() -> Void)?
 
     /// One-shot scroll request, consumed by the next list-count change —
     /// unlike the 1 s highlight, it can't retarget a later, unrelated change.

@@ -141,6 +141,15 @@ or the status item / panel / window layer.
 ## Panel behavior
 
 - [ ] Status-item click toggles the panel
+- [ ] Ellipsis (…) button at the right of the search field renders bare
+      (no bordered button background or chevron) and opens the launcher
+      menu from the non-activating panel: Settings…, Reveal Notes File in
+      Finder, Permissions…, Quit Pewter — every item fires, and Settings…
+      brings its window frontmost
+- [ ] Permissions… opens the onboarding window even when access is
+      already granted (shows "You're all set")
+- [ ] Clicking the ellipsis does not steal focus from the frontmost app's
+      title bar (panel stays non-activating until a menu item runs)
 - [ ] Typing in the panel does NOT deactivate the frontmost app (its title bar
       stays active)
 - [ ] Panel floats above a full-screen app and follows across Spaces
