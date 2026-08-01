@@ -108,6 +108,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         uiState.onRequestPermission = { [weak onboarding] in
             onboarding?.showIfNeeded()
         }
+        uiState.onOpenSettings = { [weak self] in
+            self?.showSettings()
+        }
+        uiState.onRevealNotesFile = {
+            NSWorkspace.shared.activateFileViewerSelecting([storage.fileURL])
+        }
+        uiState.onShowPermissions = { [weak onboarding] in
+            onboarding?.show()
+        }
 
         if storage.savesSuspended {
             uiState.storageError = "Notes file can't be read — saving is off to protect it"
