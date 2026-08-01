@@ -37,6 +37,39 @@ public final class CaptureCoordinator {
     /// forever.
     private static let duplicateWindow: TimeInterval = 2.0
 
+    /// A stray select-all can capture huge text into a hand-editable file.
+    /// Only captures are capped — the composer, the editor, and external
+    /// edits are deliberate and never truncated.
+    static let captureLengthCap = 20000
+
+    /// A single Character can carry an unbounded run of combining scalars,
+    /// so the character cap alone can't bound the file's size on disk;
+    /// bytes back it up.
+    static let captureByteCap = 100_000
+
+    /// Caps `text` to `captureLengthCap` characters and `captureByteCap`
+    /// UTF-8 bytes, ellipsis included, cutting on Character boundaries so a
+    /// grapheme at the cap is dropped whole. Leading whitespace is dropped
+    /// before measuring — it's trimmed downstream anyway, and letting it eat
+    /// the budget would discard the content behind it. The bounded prefix
+    /// keeps the character check O(cap); the byte check is O(1) on native
+    /// strings but not on bridged ones.
+    static func capped(_ text: String) -> String {
+        let head = text.drop(while: \.isWhitespace)
+        let overChars = head.prefix(captureLengthCap + 1).count > captureLengthCap
+        let overBytes = head.utf8.count > captureByteCap
+        guard overChars || overBytes else { return text }
+
+        var cut = String(head.prefix(captureLengthCap - 1))
+        while cut.utf8.count > captureByteCap - "…".utf8.count {
+            cut.removeLast()
+        }
+        while let last = cut.last, last.isWhitespace {
+            cut.removeLast()
+        }
+        return cut + "…"
+    }
+
     private let store: ListStore
     private let selectionReader: any SelectionReading
     private let pasteboardCapture: any PasteboardCapturing
@@ -88,6 +121,10 @@ public final class CaptureCoordinator {
     }
 
     private func finish(with text: String) {
+        // Cap before the duplicate check: the stored note holds capped text,
+        // and comparing raw text against it would let a re-fired over-cap
+        // capture slip past the guard.
+        let text = Self.capped(text)
         if let existing = duplicate(of: text) {
             // Re-surface the existing note instead of adding a copy — the
             // double-fire reads as one successful capture, not a silent

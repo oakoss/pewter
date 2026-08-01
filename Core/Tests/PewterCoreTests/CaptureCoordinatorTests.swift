@@ -375,6 +375,120 @@ struct CaptureCoordinatorTests {
         try await waitUntil { outcomes.all.count == 2 }
         #expect(store.items.count == 2)
     }
+
+    @Test func captureAtTheCapPassesThroughUntouched() {
+        let text = String(repeating: "a", count: CaptureCoordinator.captureLengthCap)
+        let reader = FakeReader(result: text)
+        let (coordinator, store, _) = makeCoordinator(reader: reader, capture: FakeCapture(result: .failed))
+
+        coordinator.captureSelection()
+
+        #expect(store.items.map(\.text) == [text])
+    }
+
+    @Test func overCapCaptureTruncatesToTheCapWithEllipsis() {
+        let reader = FakeReader(result: String(repeating: "a", count: 30000))
+        let (coordinator, store, _) = makeCoordinator(reader: reader, capture: FakeCapture(result: .failed))
+
+        coordinator.captureSelection()
+
+        let stored = store.items[0].text
+        #expect(stored.count == CaptureCoordinator.captureLengthCap)
+        #expect(stored.hasSuffix("a…"))
+    }
+
+    @Test func truncationDropsAWholeGraphemeAtTheCut() {
+        // A ZWJ family emoji is one Character across many scalars; the cut
+        // must drop or keep it whole, never split it into parts.
+        let text = String(repeating: "a", count: CaptureCoordinator.captureLengthCap - 2)
+            + "👨‍👩‍👧‍👦" + String(repeating: "b", count: 100)
+        let reader = FakeReader(result: text)
+        let (coordinator, store, _) = makeCoordinator(reader: reader, capture: FakeCapture(result: .failed))
+
+        coordinator.captureSelection()
+
+        let stored = store.items[0].text
+        #expect(stored.hasSuffix("👨‍👩‍👧‍👦…"))
+        #expect(stored.count == CaptureCoordinator.captureLengthCap)
+    }
+
+    @Test func truncationTrimsWhitespaceBeforeTheEllipsis() {
+        let head = String(repeating: "a", count: CaptureCoordinator.captureLengthCap - 10)
+        let reader = FakeReader(result: head + String(repeating: " ", count: 100))
+        let (coordinator, store, _) = makeCoordinator(reader: reader, capture: FakeCapture(result: .failed))
+
+        coordinator.captureSelection()
+
+        #expect(store.items.map(\.text) == [head + "…"])
+    }
+
+    @Test func whitespaceOnlyOverCapCaptureReportsNothingSelected() {
+        let reader = FakeReader(result: String(repeating: " ", count: 30000))
+        let (coordinator, store, outcomes) = makeCoordinator(reader: reader, capture: FakeCapture(result: .failed))
+
+        coordinator.captureSelection()
+
+        #expect(store.items.isEmpty)
+        #expect(outcomes.all == [.nothingSelected])
+    }
+
+    @Test func oneOverTheCapTruncates() {
+        let reader = FakeReader(result: String(repeating: "a", count: CaptureCoordinator.captureLengthCap + 1))
+        let (coordinator, store, _) = makeCoordinator(reader: reader, capture: FakeCapture(result: .failed))
+
+        coordinator.captureSelection()
+
+        #expect(store.items[0].text.count == CaptureCoordinator.captureLengthCap)
+        #expect(store.items[0].text.hasSuffix("…"))
+    }
+
+    @Test func contentBehindALongWhitespaceRunSurvivesTheCap() {
+        let reader = FakeReader(result: String(repeating: " ", count: 25000) + "content")
+        let (coordinator, store, _) = makeCoordinator(reader: reader, capture: FakeCapture(result: .failed))
+
+        coordinator.captureSelection()
+
+        #expect(store.items.map(\.text) == ["content"])
+    }
+
+    @Test func pasteboardFallbackCaptureIsCapped() async throws {
+        let reader = FakeReader(result: nil)
+        let capture = FakeCapture(result: .copied(String(repeating: "a", count: 30000)))
+        let (coordinator, store, outcomes) = makeCoordinator(reader: reader, capture: capture)
+
+        coordinator.captureSelection()
+        try await waitUntil { !outcomes.all.isEmpty }
+
+        #expect(store.items[0].text.count == CaptureCoordinator.captureLengthCap)
+        #expect(store.items[0].text.hasSuffix("a…"))
+    }
+
+    @Test func combiningMarkRunsAreCappedByBytes() {
+        // Each character is one base scalar plus ten combining marks — few
+        // characters, many bytes. The byte cap must bound these; the
+        // character cap alone would wave them through.
+        let zalgo = "e" + String(repeating: "\u{0301}", count: 10)
+        let reader = FakeReader(result: String(repeating: zalgo, count: 15000))
+        let (coordinator, store, _) = makeCoordinator(reader: reader, capture: FakeCapture(result: .failed))
+
+        coordinator.captureSelection()
+
+        let stored = store.items[0].text
+        #expect(stored.utf8.count <= CaptureCoordinator.captureByteCap)
+        #expect(stored.count < CaptureCoordinator.captureLengthCap)
+        #expect(stored.hasSuffix("…"))
+    }
+
+    @Test func duplicateGuardCoversTruncatedCaptures() {
+        let reader = FakeReader(result: String(repeating: "a", count: 25000))
+        let (coordinator, store, outcomes) = makeCoordinator(reader: reader, capture: FakeCapture(result: .failed))
+
+        coordinator.captureSelection()
+        coordinator.captureSelection()
+
+        #expect(store.items.count == 1)
+        #expect(outcomes.all.count == 2)
+    }
 }
 
 /// Outcome accumulator (MainActor-confined, so a plain class is fine).
