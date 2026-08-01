@@ -1,11 +1,8 @@
 import AppKit
-import os
 
 /// Non-activating floating panel: takes keyboard input without activating the
 /// app, so the frontmost app keeps focus while the user works the list.
 final class FloatingPanel: NSPanel, NSWindowDelegate {
-    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "panel")
-
     /// Own constant, not `minSize`: the hosting machinery resets the
     /// window's min size to zero at runtime, so anything derived from the
     /// property silently stops clamping.
