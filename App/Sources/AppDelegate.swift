@@ -98,7 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hotKeyCenter.setHandler(for: .panelToggle) { [weak self] in
             guard let self else { return }
-            self.panelController?.toggle(relativeTo: self.statusItemController?.button)
+            self.panelController?.toggle(relativeTo: self.statusItemController?.button, onActiveScreen: true)
         }
 
         let onboarding = OnboardingWindowController(permission: permission)
@@ -277,7 +277,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // An active filter would hide the new item and the capture would
             // read as failed.
             uiState.query = ""
-            panelController?.show(relativeTo: statusItemController?.button)
+            // Capture is a keyboard summon from wherever the user works —
+            // its feedback must appear on the screen they're looking at.
+            panelController?.show(relativeTo: statusItemController?.button, onActiveScreen: true)
             uiState.highlight(item.id)
             statusItemController?.flash(symbolName: "checkmark.circle", description: "Captured")
         case .nothingSelected:
