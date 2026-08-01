@@ -25,6 +25,20 @@ or the status item / panel / window layer.
 - [ ] Status item right-click → Settings… opens an activating titled window;
       Esc does NOT close it (Esc is panel behavior); the red close button
       does; position survives reopen
+- [ ] Launch at login toggle on → Pewter appears in System Settings →
+      General → Login Items & Extensions; log out and back in (or reboot) →
+      Pewter is running; toggle off → removed from Login Items
+- [ ] Disable Pewter's login item in System Settings while the settings
+      window is closed → reopening shows the toggle off; flipping it on
+      shows the "Approve Pewter under Login Items to finish" hint with the
+      Open Login Items… button (register lands in requiresApproval)
+- [ ] With the settings window open and the approval hint showing, click
+      Open Login Items…, approve Pewter in System Settings, and switch
+      back → the toggle reads on and the hint clears (re-sync on app
+      activation)
+- [ ] The one-time "added items that can run in the background" system
+      notification after first enable is expected macOS behavior — no
+      Pewter bug
 - [ ] Capture gesture picker → Double-tap ⌃ Control → double-tap Control
       captures; double-tap Shift no longer does; the panel's empty-state
       hint matches the chosen modifier
