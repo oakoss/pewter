@@ -99,8 +99,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let hotKeyCoordinator = HotKeyCoordinator(
-            arm: { [weak hotKeyCenter] slot, chord in
-                hotKeyCenter?.arm(slot, chord: chord?.carbonChord) != .failed
+            // Strong capture, deliberately: both objects live for the
+            // process, there is no back-reference, and a weak capture would
+            // report "armed" for a vanished center.
+            arm: { slot, chord in
+                hotKeyCenter.arm(slot, chord: chord?.carbonChord) != .failed
             },
             setTapActive: { [weak self] active in
                 guard let self else { return }
