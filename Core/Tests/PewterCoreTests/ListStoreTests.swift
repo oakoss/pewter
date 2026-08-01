@@ -109,7 +109,7 @@ struct ListStoreTests {
 
         #expect(reparsed == store.document)
         #expect(reparsed.items.first?.text == merged.text)
-        #expect(reparsed.lines.contains(.verbatim("## Heading")))
+        #expect(reparsed.lines.contains(.heading(SectionHeading(raw: "## Heading", title: "Heading"))))
     }
 
     @Test func undoAfterMergeRoundTripsThroughSerialization() throws {
@@ -175,15 +175,74 @@ struct ListStoreTests {
         #expect(store.items.map(\.text) == ["edited outside"])
     }
 
-    @Test func filterIsCaseAndDiacriticInsensitive() {
+    @Test func sectionMatchingIsCaseAndDiacriticInsensitive() {
         let store = ListStore()
         store.add(text: "Café notes")
         store.add(text: "unrelated")
 
-        #expect(store.filtered(query: "cafe").count == 1)
-        #expect(store.filtered(query: "CAFÉ").count == 1)
-        #expect(store.filtered(query: "").count == 2)
-        #expect(store.filtered(query: "zzz").isEmpty)
+        #expect(store.sections(matching: "cafe").flatMap(\.items).count == 1)
+        #expect(store.sections(matching: "CAFÉ").flatMap(\.items).count == 1)
+        #expect(store.sections(matching: "").flatMap(\.items).count == 2)
+        #expect(store.sections(matching: "zzz").isEmpty)
+    }
+
+    @Test func sectionsMatchingFiltersWithinAndDropsEmptySections() {
+        let store = ListStore(document: MarkdownDocument.parse("""
+        ## Research
+        - [ ] read paper
+        ## Config
+        - [ ] tweak paper size
+        - [ ] unrelated
+        """))
+
+        let filtered = store.sections(matching: "paper")
+        #expect(filtered.map(\.heading) == ["Research", "Config"])
+        #expect(filtered[1].items.map(\.text) == ["tweak paper size"])
+        #expect(store.sections(matching: "zzz").isEmpty)
+    }
+
+    @Test func sectionsMatchingEmptyQueryKeepsEmptySections() {
+        let store = ListStore(document: MarkdownDocument.parse("## Someday\n"))
+        #expect(store.sections(matching: "").map(\.heading) == ["Someday"])
+        #expect(store.sections(matching: "   ") == store.sections(matching: ""))
+    }
+
+    @Test func headingMatchRevealsTheWholeSection() {
+        let store = ListStore(document: MarkdownDocument.parse("## Research\n- [ ] buy milk\n- [ ] call bank\n"))
+        let matched = store.sections(matching: "resear")
+        #expect(matched.map(\.heading) == ["Research"])
+        #expect(matched[0].items.map(\.text) == ["buy milk", "call bank"])
+
+        let empty = ListStore(document: MarkdownDocument.parse("## Someday\n"))
+        #expect(empty.sections(matching: "someday").map(\.heading) == ["Someday"])
+    }
+
+    @Test func headingAndItemMatchesCombine() {
+        let store = ListStore(document: MarkdownDocument.parse("""
+        ## Papers
+        - [ ] buy milk
+        ## Config
+        - [ ] paper size
+        - [ ] unrelated
+        """))
+        let matched = store.sections(matching: "paper")
+        #expect(matched.map(\.heading) == ["Papers", "Config"])
+        #expect(matched[0].items.map(\.text) == ["buy milk"])
+        #expect(matched[1].items.map(\.text) == ["paper size"])
+    }
+
+    @Test func narrowedSectionsKeepTheirIdentity() {
+        let store = ListStore(document: MarkdownDocument.parse("## Research\n- [ ] read paper\n- [ ] other\n"))
+        let full = store.sections(matching: "")
+        let narrowed = store.sections(matching: "paper")
+        #expect(narrowed.map(\.id) == full.map(\.id))
+        #expect(narrowed[0].items.map(\.text) == ["read paper"])
+    }
+
+    @Test func addedItemJoinsLastSection() {
+        let store = ListStore(document: MarkdownDocument.parse("## First\n- [ ] a\n## Last\n- [ ] b\n"))
+        store.add(text: "new note")
+        #expect(store.sections(matching: "").last?.items.map(\.text) == ["b", "new note"])
     }
 
     @Test func batchDeleteRemovesAllAndIgnoresUnknownIDs() throws {
@@ -245,7 +304,7 @@ struct ListStoreTests {
         #expect(store.items.map(\.text) == ["first", "second", "third"])
         #expect(store.items[1].done == true)
         #expect(store.items[1].createdAt == second.createdAt)
-        #expect(store.document.lines.first == .verbatim("## Heading"))
+        #expect(store.document.lines.first == .heading(SectionHeading(raw: "## Heading", title: "Heading")))
     }
 
     @Test func undoRestoresBatchAtOriginalPositions() throws {

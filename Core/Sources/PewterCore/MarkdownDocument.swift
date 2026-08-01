@@ -1,10 +1,36 @@
+import CryptoKit
 import Foundation
 
-/// A single line of the notes file: either a task item or a line we don't
-/// interpret (headings, blanks, prose) preserved verbatim on round-trip.
+/// A single line of the notes file: a task item, a `## ` section heading, or
+/// a line we don't interpret (blanks, prose, other heading levels) preserved
+/// verbatim on round-trip.
 public enum MarkdownLine: Equatable, Sendable {
     case item(Item)
+    case heading(SectionHeading)
     case verbatim(String)
+}
+
+/// A `## ` section heading line. `raw` keeps the exact bytes for round-trip;
+/// `title` is the trimmed text. The id lets views track a section across
+/// renders and is never written to the file; it's derived from `raw` at
+/// classification time, so reloading an unchanged file keeps identity
+/// stable. Equality compares `raw` alone — a standalone value can't know
+/// the occurrence index its id encodes, and content is what document
+/// comparison needs.
+public struct SectionHeading: Identifiable, Equatable, Sendable {
+    public let id: UUID
+    public let raw: String
+    public let title: String
+
+    init(id: UUID = UUID(), raw: String, title: String) {
+        self.id = id
+        self.raw = raw
+        self.title = title
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.raw == rhs.raw
+    }
 }
 
 /// Parses and serializes the notes file.
@@ -24,12 +50,41 @@ public struct MarkdownDocument: Equatable, Sendable {
 
     public init(lines: [MarkdownLine] = []) {
         // A verbatim entry with embedded line breaks would serialize to
-        // multiple lines and break round-trip; split it up front.
+        // multiple lines and break round-trip; split it up front. Classifying
+        // headings here, the single choke point every line passes through,
+        // keeps `.verbatim("## X")` and `.heading` from coexisting as two
+        // unequal spellings of the same file line.
+        var occurrences: [String: Int] = [:]
         self.lines = lines.flatMap { line -> [MarkdownLine] in
             guard case let .verbatim(text) = line, text.contains(where: \.isNewline) else { return [line] }
             return text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
                 .map { .verbatim(String($0)) }
         }
+        .map { line in
+            guard case let .verbatim(text) = line,
+                  let match = text.wholeMatch(of: Self.sectionHeading) else { return line }
+            let occurrence = occurrences[text, default: 0]
+            occurrences[text] = occurrence + 1
+            return .heading(SectionHeading(
+                id: Self.headingID(raw: text, occurrence: occurrence),
+                raw: text,
+                title: String(match.title)
+            ))
+        }
+    }
+
+    /// Deterministic: an external reload re-parses the whole file, and a
+    /// random id would tear down and rebuild every section's rows — losing
+    /// row state like in-progress edits. The occurrence index keeps duplicate
+    /// headings distinct.
+    private static func headingID(raw: String, occurrence: Int) -> UUID {
+        let bytes = Array(SHA256.hash(data: Data("\(occurrence)\n\(raw)".utf8)))
+        return UUID(uuid: (
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        ))
     }
 
     public var items: [Item] {
@@ -39,6 +94,57 @@ public struct MarkdownDocument: Equatable, Sendable {
             }
             return nil
         }
+    }
+
+    /// A heading and the items grouped beneath it. `heading` is nil for items
+    /// above the first heading; non-nil headings are non-empty with
+    /// surrounding spaces stripped. Items may be a filtered subset of what's
+    /// actually under the heading in the document. The id comes from the
+    /// heading line, so it stays stable while other sections appear or
+    /// disappear — with one exception: duplicate headings are told apart by
+    /// position, so removing or inserting an earlier duplicate shifts the
+    /// later ones' identity.
+    public struct Section: Identifiable, Equatable, Sendable {
+        public let id: UUID
+        public let heading: String?
+        public let items: [Item]
+    }
+
+    /// The preamble has no heading line to borrow identity from; at most one
+    /// exists per document, so a fixed id is safe.
+    private static let preambleSectionID = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
+
+    /// Items grouped by `## ` heading lines. A heading with no items yields
+    /// an empty section — it's real structure the user put in the file. Only
+    /// level-2 headings group; `#` and `###`+ lines stay plain verbatim, so
+    /// prose documents with a title don't sprout accidental sections.
+    public var sections: [Section] {
+        var sections: [Section] = []
+        var current: SectionHeading?
+        var pending: [Item] = []
+
+        func flush() {
+            if let current {
+                sections.append(Section(id: current.id, heading: current.title, items: pending))
+            } else if !pending.isEmpty {
+                sections.append(Section(id: Self.preambleSectionID, heading: nil, items: pending))
+            }
+            pending = []
+        }
+
+        for line in lines {
+            switch line {
+            case let .item(item):
+                pending.append(item)
+            case let .heading(heading):
+                flush()
+                current = heading
+            case .verbatim:
+                break
+            }
+        }
+        flush()
+        return sections
     }
 
     // MARK: - Mutations
@@ -110,6 +216,9 @@ public struct MarkdownDocument: Equatable, Sendable {
     private nonisolated(unsafe) static let taskLine = /^- \[(?<done>[ xX])\] (?<rest>.*)$/
     private nonisolated(unsafe) static let metadata =
         /\s*<!--sl id=(?<id>[0-9a-fA-F-]{36}) created=(?<created>[^>]+?)-->\s*$/
+    // The title must start with a non-space, or backtracking lets `## ` plus
+    // trailing spaces match as a blank-titled heading.
+    private nonisolated(unsafe) static let sectionHeading = /^## +(?<title>\S.*?) *$/
 
     public static func parse(_ text: String, now: Date = .now) -> MarkdownDocument {
         var lines: [MarkdownLine] = []
@@ -216,6 +325,8 @@ public struct MarkdownDocument: Equatable, Sendable {
             switch line {
             case let .verbatim(text):
                 output.append(text)
+            case let .heading(heading):
+                output.append(heading.raw)
             case let .item(item):
                 output.append(Self.serialize(item))
             }

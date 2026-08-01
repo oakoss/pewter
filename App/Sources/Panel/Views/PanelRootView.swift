@@ -15,8 +15,12 @@ struct PanelRootView: View {
         case search, quickAdd, editor, list
     }
 
+    private var visibleSections: [MarkdownDocument.Section] {
+        store.sections(matching: uiState.query)
+    }
+
     private var visibleItems: [Item] {
-        store.filtered(query: uiState.query)
+        visibleSections.flatMap(\.items)
     }
 
     private var visibleOrder: [UUID] {
@@ -28,8 +32,9 @@ struct PanelRootView: View {
     }
 
     var body: some View {
-        // One filter walk per render; everything below derives from it.
-        let items = visibleItems
+        // One grouping walk per render; the list and the selection pruning
+        // below derive from it.
+        let sections = visibleSections
         VStack(spacing: 0) {
             if let storageError = uiState.storageError {
                 errorBanner(storageError)
@@ -39,7 +44,7 @@ struct PanelRootView: View {
             }
             searchField
             Divider()
-            itemList(items)
+            itemList(sections)
             Divider()
             quickAddField
         }
@@ -114,7 +119,7 @@ struct PanelRootView: View {
             uiState.query = ""
             return .handled
         }
-        .onChange(of: items.map(\.id)) { _, newOrder in
+        .onChange(of: sections.flatMap(\.items).map(\.id)) { _, newOrder in
             selection.prune(order: newOrder)
         }
         .onChange(of: focus) { oldFocus, newFocus in
@@ -171,43 +176,53 @@ struct PanelRootView: View {
         .accessibilityLabel("More actions")
     }
 
-    private func itemList(_ items: [Item]) -> some View {
+    private func itemList(_ sections: [MarkdownDocument.Section]) -> some View {
         // Hoisted: computing this per row would walk the document once per
         // selected row on every render.
         let selectionMarksDone = !store.allDone(ids: selection.selected)
+        // During a search, a returned empty section IS the match (its heading
+        // matched), so "No matches" must not render beneath it.
+        let showsEmptyState = uiState.query.isEmpty
+            ? sections.allSatisfy(\.items.isEmpty)
+            : sections.isEmpty
         return ScrollViewReader { proxy in
             ScrollView {
                 // Focusable so list-level shortcuts (Space, Return, Delete,
                 // Cmd+C) have a focus state distinct from the text fields.
                 LazyVStack(spacing: 4) {
-                    ForEach(items) { item in
-                        let isRowSelected = selection.isSelected(item.id)
-                        ItemRow(
-                            item: item,
-                            isSelected: isRowSelected,
-                            isHighlighted: item.id == uiState.highlightedItemID,
-                            isEditing: item.id == editingID,
-                            menuMarksDone: isRowSelected ? selectionMarksDone : !item.done,
-                            editorFocus: $focus,
-                            onToggle: { store.toggleDone(ids: [item.id]) },
-                            onSelect: { select(item) },
-                            onBeginEdit: { beginEdit(item) },
-                            onCommitEdit: { text in commitEdit(id: item.id, text: text) },
-                            onCancelEdit: {
-                                editingID = nil
-                                focus = .list
-                            },
-                            onCopy: { copy([item]) },
-                            onMenuCopy: { copy(targets(for: item)) },
-                            onMenuCopyList: { copyAsList(targets(for: item)) },
-                            onMenuToggle: { toggleDone(targets(for: item)) },
-                            canMerge: selection.isMultiple && isRowSelected,
-                            onMenuMerge: { _ = mergeSelected() },
-                            onDelete: { delete(ids: Set(targets(for: item).map(\.id))) }
-                        )
-                        .id(item.id)
+                    ForEach(sections) { section in
+                        if let heading = section.heading {
+                            sectionHeader(heading)
+                        }
+                        ForEach(section.items) { item in
+                            let isRowSelected = selection.isSelected(item.id)
+                            ItemRow(
+                                item: item,
+                                isSelected: isRowSelected,
+                                isHighlighted: item.id == uiState.highlightedItemID,
+                                isEditing: item.id == editingID,
+                                menuMarksDone: isRowSelected ? selectionMarksDone : !item.done,
+                                editorFocus: $focus,
+                                onToggle: { store.toggleDone(ids: [item.id]) },
+                                onSelect: { select(item) },
+                                onBeginEdit: { beginEdit(item) },
+                                onCommitEdit: { text in commitEdit(id: item.id, text: text) },
+                                onCancelEdit: {
+                                    editingID = nil
+                                    focus = .list
+                                },
+                                onCopy: { copy([item]) },
+                                onMenuCopy: { copy(targets(for: item)) },
+                                onMenuCopyList: { copyAsList(targets(for: item)) },
+                                onMenuToggle: { toggleDone(targets(for: item)) },
+                                canMerge: selection.isMultiple && isRowSelected,
+                                onMenuMerge: { _ = mergeSelected() },
+                                onDelete: { delete(ids: Set(targets(for: item).map(\.id))) }
+                            )
+                            .id(item.id)
+                        }
                     }
-                    if items.isEmpty {
+                    if showsEmptyState {
                         emptyState
                     }
                 }
@@ -235,6 +250,19 @@ struct PanelRootView: View {
                 }
             }
         }
+    }
+
+    /// Uppercased so headers read as group labels distinct from note text;
+    /// the file keeps whatever casing the author wrote.
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .textCase(.uppercase)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.top, 10)
+            .accessibilityAddTraits(.isHeader)
     }
 
     private func errorBanner(_ message: String) -> some View {
