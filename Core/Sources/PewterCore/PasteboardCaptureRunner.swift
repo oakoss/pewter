@@ -13,8 +13,9 @@ public protocol PasteboardCaptureSurface {
 
     var changeCount: Int { get }
     var frontmostAppPid: pid_t? { get }
-    /// Plain-text clipboard content.
-    func string() -> String?
+    /// Clipboard content, best flavor first: Markdown converted from a rich
+    /// flavor when one is present, plain text otherwise.
+    func capturedText() -> String?
     /// Saves restorable clipboard contents; nil when nothing restorable
     /// was present.
     func saveClipboard() -> Snapshot?
@@ -91,7 +92,7 @@ public enum PasteboardCaptureRunner {
         }
 
         if let landedCount {
-            let result = PasteboardCapturePolicy.capturedResult(from: surface.string())
+            let result = PasteboardCapturePolicy.capturedResult(from: surface.capturedText())
             restoreIfSafe(on: surface, snapshot: snapshot, expectedChangeCount: landedCount)
             return result
         }
@@ -102,7 +103,7 @@ public enum PasteboardCaptureRunner {
         // is today. Recent activity plus a dead copy means the clipboard
         // already holds this selection — use it and leave it there.
         if surface.recentClipboardChange() {
-            let result = PasteboardCapturePolicy.capturedResult(from: surface.string())
+            let result = PasteboardCapturePolicy.capturedResult(from: surface.capturedText())
             if case .copied = result {
                 logger.info("using recently auto-copied clipboard content")
             } else {

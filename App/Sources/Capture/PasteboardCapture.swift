@@ -71,8 +71,50 @@ struct PasteboardCapture: PasteboardCapturing, PasteboardCaptureSurface {
         NSWorkspace.shared.frontmostApplication?.processIdentifier
     }
 
-    func string() -> String? {
-        NSPasteboard.general.string(forType: .string)
+    /// Best flavor first: HTML, then RTF, converted to Markdown so captured
+    /// formatting survives in a file that already speaks Markdown. An
+    /// unstyled conversion steps aside for the plain flavor, which keeps
+    /// the source's exact whitespace that the HTML walk collapses; every
+    /// abandoned flavor logs why, so a "formatting disappeared" report has
+    /// a trail.
+    func capturedText() -> String? {
+        let pasteboard = NSPasteboard.general
+        var unstyled: String?
+
+        if let data = pasteboard.data(forType: .html) {
+            if let html = HTMLMarkdown.decode(data) {
+                if let conversion = HTMLMarkdown.convert(fromHTML: html) {
+                    if conversion.styled {
+                        return conversion.markdown
+                    }
+                    unstyled = conversion.markdown
+                } else {
+                    Self.logger.debug("html flavor (\(data.count) bytes) yielded no markdown; trying rtf")
+                }
+            } else {
+                Self.logger.info("html flavor (\(data.count) bytes) decoded as neither utf8 nor utf16; trying rtf")
+            }
+        }
+
+        if let data = pasteboard.data(forType: .rtf) {
+            // Same ceiling as HTML: the RTF importer is even costlier per
+            // byte, and it runs on the main actor mid-gesture.
+            if data.count > HTMLMarkdown.byteCeiling {
+                Self.logger.debug("rtf flavor (\(data.count) bytes) over the conversion ceiling; trying plain string")
+            } else if let blocks = AttributedTextBlocks.blocks(fromRTF: data),
+                      blocks.requiresMarkdown
+            {
+                let markdown = MarkdownWriter.markdown(from: blocks)
+                if !markdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return markdown
+                }
+                Self.logger.debug("rtf flavor converted to empty markdown; trying plain string")
+            }
+        }
+
+        // The unstyled conversion is only a rescue for rich-only
+        // pasteboards; a present plain flavor always wins on fidelity.
+        return pasteboard.string(forType: .string) ?? unstyled
     }
 
     func recentClipboardChange() -> Bool {

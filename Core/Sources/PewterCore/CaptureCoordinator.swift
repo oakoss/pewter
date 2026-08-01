@@ -67,7 +67,46 @@ public final class CaptureCoordinator {
         while let last = cut.last, last.isWhitespace {
             cut.removeLast()
         }
+        // Rich captures arrive as Markdown; a cut landing inside a fenced
+        // code block would leave the fence open and mis-render everything
+        // after it in an external editor. Close it, inside the budget.
+        if let fence = openFenceDelimiter(in: cut) {
+            let over = cut.count - (captureLengthCap - fence.count - 2)
+            if over > 0 {
+                cut.removeLast(over)
+            }
+            // The close is appended after the byte trim above spent the
+            // budget; reserve its bytes too.
+            let tail = fence.utf8.count + 1 + "…".utf8.count
+            while cut.utf8.count > captureByteCap - tail {
+                cut.removeLast()
+            }
+            if let fence = openFenceDelimiter(in: cut) {
+                // Ellipsis inside the block, fence last — a closing fence
+                // trailed by anything but spaces isn't a closer at all.
+                return cut + "…\n" + fence
+            }
+        }
         return cut + "…"
+    }
+
+    /// The delimiter of a fence left open in `text`, nil when every fence
+    /// is closed. Per CommonMark a fence line may be indented up to three
+    /// spaces, and a closer must be at least as long as its opener — a
+    /// shorter backtick run inside the block is content.
+    private static func openFenceDelimiter(in text: String) -> String? {
+        var open = 0
+        for line in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+            let body = line.drop(while: { $0 == " " })
+            guard line.count - body.count <= 3, body.hasPrefix("```") else { continue }
+            let ticks = body.prefix(while: { $0 == "`" }).count
+            if open == 0 {
+                open = ticks
+            } else if ticks >= open {
+                open = 0
+            }
+        }
+        return open > 0 ? String(repeating: "`", count: open) : nil
     }
 
     private let store: ListStore

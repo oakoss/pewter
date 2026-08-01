@@ -479,6 +479,48 @@ struct CaptureCoordinatorTests {
         #expect(stored.hasSuffix("…"))
     }
 
+    @Test func truncationInsideAFencedBlockClosesTheFence() {
+        let code = "```\n" + String(repeating: "code line\n", count: 4000) + "```"
+        let reader = FakeReader(result: code)
+        let (coordinator, store, _) = makeCoordinator(reader: reader, capture: FakeCapture(result: .failed))
+
+        coordinator.captureSelection()
+
+        let stored = store.items[0].text
+        #expect(stored.count <= CaptureCoordinator.captureLengthCap)
+        #expect(stored.hasSuffix("…\n```"))
+    }
+
+    @Test func truncationClosesASizedFenceWithItsOwnDelimiter() {
+        // A backtick run inside the block is content, not a closer — the
+        // appended close must match the four-tick opener.
+        let code = "````\n" + String(repeating: "``` inner\n", count: 4000) + "````"
+        let reader = FakeReader(result: code)
+        let (coordinator, store, _) = makeCoordinator(reader: reader, capture: FakeCapture(result: .failed))
+
+        coordinator.captureSelection()
+
+        let stored = store.items[0].text
+        #expect(stored.count <= CaptureCoordinator.captureLengthCap)
+        #expect(stored.hasSuffix("…\n````"))
+    }
+
+    @Test func indentedFenceCloserIsRecognizedNotRepaired() {
+        // The fence is already closed (an up-to-3-space indented closer is
+        // legal); the repair must not append a spurious opener.
+        let text = "```\ncode\n  ```\n" + String(repeating: "prose ", count: 4000)
+        let reader = FakeReader(result: text)
+        let (coordinator, store, _) = makeCoordinator(reader: reader, capture: FakeCapture(result: .failed))
+
+        coordinator.captureSelection()
+
+        let stored = store.items[0].text
+        let fenceLines = stored.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+            .count { $0.drop(while: { $0 == " " }).hasPrefix("```") }
+        #expect(fenceLines == 2)
+        #expect(stored.hasSuffix("…"))
+    }
+
     @Test func duplicateGuardCoversTruncatedCaptures() {
         let reader = FakeReader(result: String(repeating: "a", count: 25000))
         let (coordinator, store, outcomes) = makeCoordinator(reader: reader, capture: FakeCapture(result: .failed))

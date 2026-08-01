@@ -31,8 +31,8 @@ private final class SurfaceFake: PasteboardCaptureSurface {
         events.contains("recent")
     }
 
-    func string() -> String? {
-        events.append("string")
+    func capturedText() -> String? {
+        events.append("capturedText")
         return text
     }
 
@@ -92,7 +92,7 @@ struct PasteboardCaptureRunnerTests {
         // The full sequence pins every load-bearing order at once:
         // snapshot before the bracket, bracket before synthesis, the text
         // read before the restore, the bracket closed last.
-        #expect(surface.events == ["save", "begin", "post(hid)", "poll(10)", "string", "restore", "end"])
+        #expect(surface.events == ["save", "begin", "post(hid)", "poll(10)", "capturedText", "restore", "end"])
     }
 
     @Test func trackerIsNeverPolledWhenTheCopyLands() async {
@@ -123,7 +123,7 @@ struct PasteboardCaptureRunnerTests {
             "poll(10)",
             "post(42)",
             "poll(10)",
-            "string",
+            "capturedText",
             "restore",
             "end",
         ])
@@ -188,7 +188,7 @@ struct PasteboardCaptureRunnerTests {
         // The tracker poll precedes the text read: reversed, a write
         // landing between the two would read as recent activity while the
         // captured text predates it.
-        #expect(surface.events == ["save", "begin", "post(hid)", "poll(10)", "recent", "string", "end"])
+        #expect(surface.events == ["save", "begin", "post(hid)", "poll(10)", "recent", "capturedText", "end"])
     }
 
     @Test func recentChangeWithoutTextIsNotACapture() async {
@@ -253,7 +253,7 @@ struct PasteboardCaptureRunnerTests {
             "post(42)",
             "poll(10)",
             "recent",
-            "string",
+            "capturedText",
             "end",
         ])
     }
