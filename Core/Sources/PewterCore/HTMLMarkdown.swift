@@ -7,22 +7,18 @@ import Foundation
 /// Tolerant by design: unknown tags are transparent, mismatched close tags
 /// recover, a `<` that opens no tag is text, and only constructs Markdown
 /// can express are marked up. Text that arrives plain comes out plain.
-public enum HTMLMarkdown {
-    public struct Conversion: Equatable, Sendable {
-        public let markdown: String
+enum HTMLMarkdown {
+    struct Conversion: Equatable, Sendable {
+        let markdown: String
         /// False when nothing in the source needed Markdown — the caller
         /// can prefer the plain-text flavor, which kept the exact
         /// whitespace the HTML walk collapses.
-        public let styled: Bool
+        let styled: Bool
     }
 
-    /// Inputs above this size skip conversion — huge HTML means a
-    /// full-page copy, and the parse cost would land on the main thread
-    /// mid-gesture.
-    public static let byteCeiling = 1_000_000
-
-    public static func convert(fromHTML html: String) -> Conversion? {
-        guard html.utf8.count <= byteCeiling else { return nil }
+    /// Size limits live upstream in `RichCapture.byteCeiling`, checked on
+    /// the raw flavor bytes before any decode.
+    static func convert(fromHTML html: String) -> Conversion? {
         var parser = Parser(html)
         let blocks = parser.run()
         guard !blocks.isEmpty else { return nil }
@@ -31,7 +27,7 @@ public enum HTMLMarkdown {
         return Conversion(markdown: markdown, styled: blocks.requiresMarkdown)
     }
 
-    public static func markdown(fromHTML html: String) -> String? {
+    static func markdown(fromHTML html: String) -> String? {
         convert(fromHTML: html)?.markdown
     }
 
@@ -42,7 +38,7 @@ public enum HTMLMarkdown {
     /// UTF-16 re-read happens only when the byte shape agrees (even length,
     /// NULs a large share), so a stray interior NUL can't turn good HTML
     /// into mojibake.
-    public static func decode(_ data: Data) -> String? {
+    static func decode(_ data: Data) -> String? {
         if data.starts(with: [0xFE, 0xFF]) || data.starts(with: [0xFF, 0xFE]) {
             return String(data: data, encoding: .utf16)
         }
@@ -147,13 +143,13 @@ public enum HTMLMarkdown {
             }
             let raw = String(html[start ..< index])
             guard skipDepth == 0 else { return }
-            let decoded = Self.decodeEntities(raw)
+            let decoded = HTMLLexer.decodeEntities(raw)
             if preDepth > 0 {
                 preText += decoded
             } else {
                 // Code keeps its whitespace — indentation is content there,
                 // and an all-code paragraph becomes a fence line.
-                append(style.code ? decoded : Self.collapseWhitespace(decoded))
+                append(style.code ? decoded : HTMLLexer.collapseWhitespace(decoded))
             }
         }
 
@@ -267,7 +263,7 @@ public enum HTMLMarkdown {
                 // item before the nested list's own items start.
                 flushRuns()
                 if name == "ol" {
-                    let start = Self.attribute("start", in: attributes).flatMap(Int.init) ?? 1
+                    let start = HTMLLexer.attribute("start", in: attributes).flatMap(Int.init) ?? 1
                     listStack.append((ordered: true, counter: max(1, start) - 1))
                 } else {
                     listStack.append((ordered: false, counter: 0))
@@ -450,14 +446,14 @@ public enum HTMLMarkdown {
             case "code", "tt", "kbd", "samp":
                 effects.code = true
             case "a":
-                effects.link = attribute("href", in: attributes)
+                effects.link = HTMLLexer.attribute("href", in: attributes)
             default:
                 break
             }
-            guard let styleAttribute = attribute("style", in: attributes)?.lowercased() else {
+            guard let styleAttribute = HTMLLexer.attribute("style", in: attributes)?.lowercased() else {
                 return effects
             }
-            if let weight = styleValue("font-weight", in: styleAttribute) {
+            if let weight = HTMLLexer.styleValue("font-weight", in: styleAttribute) {
                 if weight == "bold" || weight == "bolder" {
                     effects.bold = true
                 } else if weight == "normal" || weight == "lighter" {
@@ -466,136 +462,19 @@ public enum HTMLMarkdown {
                     effects.bold = value >= 600
                 }
             }
-            if let slant = styleValue("font-style", in: styleAttribute) {
+            if let slant = HTMLLexer.styleValue("font-style", in: styleAttribute) {
                 if slant == "italic" || slant == "oblique" {
                     effects.italic = true
                 } else if slant == "normal" {
                     effects.italic = false
                 }
             }
-            if let family = styleValue("font-family", in: styleAttribute) {
-                let monospaced = ["menlo", "monaco", "courier", "sf mono", "consolas", "monospace"]
-                if monospaced.contains(where: family.contains) {
-                    effects.code = true
-                }
+            if let family = HTMLLexer.styleValue("font-family", in: styleAttribute),
+               RichTextFont.isMonospacedFamily(family)
+            {
+                effects.code = true
             }
             return effects
-        }
-
-        private static func styleValue(_ property: String, in style: String) -> String? {
-            for declaration in style.split(separator: ";") {
-                let parts = declaration.split(separator: ":", maxSplits: 1)
-                guard parts.count == 2,
-                      parts[0].trimmingCharacters(in: .whitespaces) == property else { continue }
-                return parts[1].trimmingCharacters(in: .whitespaces)
-            }
-            return nil
-        }
-
-        /// Positional left-to-right scan — substring-searching for the name
-        /// would match a "name=" that sits inside another attribute's
-        /// quoted value.
-        private static func attribute(_ name: String, in attributes: String) -> String? {
-            var rest = Substring(attributes)
-            while true {
-                rest = rest.drop(while: { $0.isWhitespace || $0 == "/" })
-                guard let first = rest.first, first != ">" else { return nil }
-                let attributeName = rest.prefix {
-                    $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" || $0 == ":"
-                }
-                guard !attributeName.isEmpty else { return nil }
-                rest = rest.dropFirst(attributeName.count).drop(while: \.isWhitespace)
-
-                var value: Substring = ""
-                if rest.first == "=" {
-                    rest = rest.dropFirst().drop(while: \.isWhitespace)
-                    if let quote = rest.first, quote == "\"" || quote == "'" {
-                        rest = rest.dropFirst()
-                        value = rest.prefix { $0 != quote }
-                        rest = rest.dropFirst(value.count).dropFirst()
-                    } else {
-                        value = rest.prefix { !$0.isWhitespace && $0 != ">" }
-                        rest = rest.dropFirst(value.count)
-                    }
-                }
-                if attributeName.lowercased() == name {
-                    return decodeEntities(String(value))
-                }
-            }
-        }
-
-        // MARK: Entities and whitespace
-
-        private static let namedEntities: [Substring: String] = [
-            "amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'", "nbsp": " ",
-            "mdash": "—", "ndash": "–", "hellip": "…", "lsquo": "\u{2018}",
-            "rsquo": "\u{2019}", "ldquo": "\u{201C}", "rdquo": "\u{201D}",
-            "bull": "•", "middot": "·", "copy": "©", "reg": "®", "trade": "™",
-            "times": "×", "laquo": "«", "raquo": "»", "deg": "°",
-        ]
-
-        static func decodeEntities(_ text: String) -> String {
-            guard text.contains("&") else { return text }
-            var result = ""
-            result.reserveCapacity(text.count)
-            var rest = Substring(text)
-            while let ampersand = rest.firstIndex(of: "&") {
-                result += rest[..<ampersand]
-                rest = rest[ampersand...].dropFirst()
-                guard let semicolon = rest.prefix(10).firstIndex(of: ";") else {
-                    result += "&"
-                    continue
-                }
-                let entity = rest[..<semicolon]
-                if let replacement = namedEntities[entity] {
-                    result += replacement
-                    rest = rest[rest.index(after: semicolon)...]
-                } else if entity.hasPrefix("#"),
-                          let scalar = numericScalar(entity.dropFirst())
-                {
-                    result.unicodeScalars.append(scalar)
-                    rest = rest[rest.index(after: semicolon)...]
-                } else {
-                    result += "&"
-                }
-            }
-            result += rest
-            return result
-        }
-
-        private static func numericScalar(_ digits: Substring) -> Unicode.Scalar? {
-            let value: UInt32? = digits.hasPrefix("x") || digits.hasPrefix("X")
-                ? UInt32(digits.dropFirst(), radix: 16)
-                : UInt32(digits)
-            guard let value, let scalar = Unicode.Scalar(value) else { return nil }
-            // C0 controls other than tab/newline have no place in a notes
-            // file — "&#0;" must not inject a NUL.
-            if value < 0x20, value != 0x09, value != 0x0A, value != 0x0D {
-                return nil
-            }
-            return scalar
-        }
-
-        private static func collapseWhitespace(_ text: String) -> String {
-            guard text.contains(where: \.isWhitespace) else { return text }
-            var result = ""
-            result.reserveCapacity(text.count)
-            var pendingSpace = false
-            for character in text {
-                if character.isWhitespace {
-                    pendingSpace = true
-                } else {
-                    if pendingSpace {
-                        result.append(" ")
-                    }
-                    pendingSpace = false
-                    result.append(character)
-                }
-            }
-            if pendingSpace {
-                result.append(" ")
-            }
-            return result
         }
     }
 }

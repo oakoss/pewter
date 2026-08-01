@@ -31,9 +31,14 @@ private final class SurfaceFake: PasteboardCaptureSurface {
         events.contains("recent")
     }
 
-    func capturedText() -> String? {
-        events.append("capturedText")
-        return text
+    func pasteboardFlavors() -> PasteboardFlavors {
+        events.append("flavors")
+        let text = text
+        return PasteboardFlavors(plain: text)
+    }
+
+    func rtfBlocks(_ data: Data) -> [RichTextBlock]? {
+        nil
     }
 
     func saveClipboard() -> SnapshotToken? {
@@ -92,7 +97,7 @@ struct PasteboardCaptureRunnerTests {
         // The full sequence pins every load-bearing order at once:
         // snapshot before the bracket, bracket before synthesis, the text
         // read before the restore, the bracket closed last.
-        #expect(surface.events == ["save", "begin", "post(hid)", "poll(10)", "capturedText", "restore", "end"])
+        #expect(surface.events == ["save", "begin", "post(hid)", "poll(10)", "flavors", "restore", "end"])
     }
 
     @Test func trackerIsNeverPolledWhenTheCopyLands() async {
@@ -123,7 +128,7 @@ struct PasteboardCaptureRunnerTests {
             "poll(10)",
             "post(42)",
             "poll(10)",
-            "capturedText",
+            "flavors",
             "restore",
             "end",
         ])
@@ -188,7 +193,7 @@ struct PasteboardCaptureRunnerTests {
         // The tracker poll precedes the text read: reversed, a write
         // landing between the two would read as recent activity while the
         // captured text predates it.
-        #expect(surface.events == ["save", "begin", "post(hid)", "poll(10)", "recent", "capturedText", "end"])
+        #expect(surface.events == ["save", "begin", "post(hid)", "poll(10)", "recent", "flavors", "end"])
     }
 
     @Test func recentChangeWithoutTextIsNotACapture() async {
@@ -253,7 +258,7 @@ struct PasteboardCaptureRunnerTests {
             "post(42)",
             "poll(10)",
             "recent",
-            "capturedText",
+            "flavors",
             "end",
         ])
     }

@@ -52,6 +52,35 @@ public enum RichTextBlock: Equatable, Sendable {
     case quote([RichTextRun])
 }
 
+/// Font-classification rules shared by the HTML parser (Core) and the
+/// attributed-string adapter (App), so both capture paths agree on what
+/// reads as code and what reads as a heading.
+public enum RichTextFont {
+    /// Family names that read as code — checked by containment, so quoted
+    /// CSS lists and suffixed PostScript names ("Menlo-Regular") register.
+    private static let monospacedFamilies = [
+        "menlo", "monaco", "courier", "sf mono", "consolas", "monospace",
+    ]
+
+    public static func isMonospacedFamily(_ name: String) -> Bool {
+        let lowered = name.lowercased()
+        return monospacedFamilies.contains { lowered.contains($0) }
+    }
+
+    /// Buckets a bold font's size into a heading level. The smallest bucket
+    /// starts at 17pt, above the ~12–16pt body range of most rich text, so
+    /// ordinary bold text never reads as a heading.
+    public static func headingLevel(pointSize: Double, isBold: Bool) -> Int? {
+        guard isBold else { return nil }
+        return switch pointSize {
+        case 24...: 1
+        case 20 ..< 24: 2
+        case 17 ..< 20: 3
+        default: nil
+        }
+    }
+}
+
 public extension [RichTextBlock] {
     /// True when anything here actually needs Markdown — any structural
     /// block, or any styled run. An unstyled conversion gained nothing over

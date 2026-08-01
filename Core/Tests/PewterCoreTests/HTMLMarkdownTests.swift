@@ -190,11 +190,6 @@ struct HTMLMarkdownTests {
             == "1. a\n2. b")
     }
 
-    @Test func oversizedInputSkipsConversion() {
-        let huge = String(repeating: "a", count: HTMLMarkdown.byteCeiling + 1)
-        #expect(HTMLMarkdown.convert(fromHTML: huge) == nil)
-    }
-
     @Test func dataDecodingHandlesEncodings() {
         #expect(HTMLMarkdown.decode(Data("<p>utf8</p>".utf8)) == "<p>utf8</p>")
 

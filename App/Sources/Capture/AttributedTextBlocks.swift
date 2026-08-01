@@ -182,23 +182,14 @@ enum AttributedTextBlocks {
         if font.fontDescriptor.symbolicTraits.contains(.monoSpace) {
             return true
         }
-        let monospacedFamilies = ["menlo", "monaco", "courier", "sf mono", "consolas"]
-        let family = (font.familyName ?? font.fontName).lowercased()
-        return monospacedFamilies.contains { family.contains($0) }
+        return RichTextFont.isMonospacedFamily(font.familyName ?? font.fontName)
     }
 
-    /// Buckets a bold paragraph's font size into a heading level. The
-    /// smallest bucket starts at 17pt, above the ~12–16pt body range of
-    /// most rich text, so ordinary bold text never reads as a heading.
     private static func headingLevel(for font: NSFont?) -> Int? {
-        guard let font, NSFontManager.shared.traits(of: font).contains(.boldFontMask) else {
-            return nil
-        }
-        switch font.pointSize {
-        case 24...: return 1
-        case 20 ..< 24: return 2
-        case 17 ..< 20: return 3
-        default: return nil
-        }
+        guard let font else { return nil }
+        return RichTextFont.headingLevel(
+            pointSize: font.pointSize,
+            isBold: NSFontManager.shared.traits(of: font).contains(.boldFontMask)
+        )
     }
 }

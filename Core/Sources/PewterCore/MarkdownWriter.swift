@@ -8,8 +8,8 @@ import Foundation
 /// unchanged. The exceptions are the slots where an unescaped character
 /// breaks the syntax outright rather than reading oddly: code delimiters,
 /// fences, and link labels/destinations.
-public enum MarkdownWriter {
-    public static func markdown(from blocks: [RichTextBlock]) -> String {
+enum MarkdownWriter {
+    static func markdown(from blocks: [RichTextBlock]) -> String {
         var pieces: [(text: String, isListItem: Bool)] = []
         // Content column per nesting depth: a nested item must indent to
         // its parent's content column ("1. " needs 3, "10. " needs 4) or
@@ -107,7 +107,7 @@ public enum MarkdownWriter {
     /// the padding spaces Markdown requires when the content starts or ends
     /// with a backtick.
     private static func codeSpan(_ text: String) -> String {
-        let ticks = String(repeating: "`", count: longestBacktickRun(in: text) + 1)
+        let ticks = String(repeating: "`", count: MarkdownFence.longestBacktickRun(in: text) + 1)
         let pad = text.hasPrefix("`") || text.hasSuffix("`") ? " " : ""
         return ticks + pad + text + pad + ticks
     }
@@ -163,25 +163,8 @@ public enum MarkdownWriter {
 
     // MARK: - Code fences
 
-    /// The fence must be longer than any backtick run inside, or the block
-    /// closes early and the rest reads as note Markdown.
     private static func fenced(_ lines: [String]) -> String {
-        let longest = lines.map(longestBacktickRun).max() ?? 0
-        let fence = String(repeating: "`", count: max(3, longest + 1))
+        let fence = MarkdownFence.delimiter(enclosing: lines)
         return ([fence] + lines + [fence]).joined(separator: "\n")
-    }
-
-    private static func longestBacktickRun(in text: String) -> Int {
-        var longest = 0
-        var current = 0
-        for character in text {
-            if character == "`" {
-                current += 1
-                longest = max(longest, current)
-            } else {
-                current = 0
-            }
-        }
-        return longest
     }
 }
