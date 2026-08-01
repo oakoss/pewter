@@ -88,8 +88,9 @@ public final class ListStore {
 
     /// Merges the given items into one note at the earliest one's position,
     /// joining texts in document order — selection order must not matter.
-    /// Blank-line separator per nickel's merge; document order over
-    /// createdAt is deliberate — a hand-reordered file wins. The merged
+    /// Blank-line separator so merged notes stay readable paragraphs;
+    /// document order over createdAt is deliberate — a hand-reordered file
+    /// wins. The merged
     /// note keeps the first item's identity and is done only when every
     /// source was done. Undoable as a single batch.
     @discardableResult

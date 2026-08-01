@@ -8,7 +8,7 @@ public enum ItemFormatter {
         items.map(\.text).joined(separator: "\n\n")
     }
 
-    /// Copy as List output shape. Numbered matches Copper; the other two are
+    /// Copy as List output shape. Numbered is the default; the other two are
     /// for pasting into markdown documents.
     public enum ListStyle: String, CaseIterable, Sendable {
         case numbered, bulleted, taskList
