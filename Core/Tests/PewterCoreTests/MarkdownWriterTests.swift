@@ -148,6 +148,26 @@ struct MarkdownWriterTests {
         ]) == "[see \\[1\\]](https://a.com)")
     }
 
+    @Test func executableLinkSchemesAreDropped() {
+        #expect(MarkdownWriter.markdown(from: [
+            .paragraph([RichTextRun("x", link: "javascript:alert(1)")]),
+        ]) == "x")
+        #expect(MarkdownWriter.markdown(from: [
+            .paragraph([RichTextRun("x", link: "data:text/html;base64,AAAA")]),
+        ]) == "x")
+        // Safe schemes and scheme-less relative destinations keep the link.
+        #expect(MarkdownWriter.markdown(from: [
+            .paragraph([RichTextRun("x", link: "mailto:a@b.example")]),
+        ]) == "[x](mailto:a@b.example)")
+        #expect(MarkdownWriter.markdown(from: [
+            .paragraph([RichTextRun("x", link: "docs/readme.md")]),
+        ]) == "[x](docs/readme.md)")
+        // A colon in the path is not a scheme.
+        #expect(MarkdownWriter.markdown(from: [
+            .paragraph([RichTextRun("x", link: "https://a.example/a:b")]),
+        ]) == "[x](https://a.example/a:b)")
+    }
+
     @Test func emptyLinkMeansNoLink() {
         #expect(MarkdownWriter.markdown(from: [.paragraph([RichTextRun("x", link: "")])]) == "x")
     }
