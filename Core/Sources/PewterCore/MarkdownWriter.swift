@@ -94,6 +94,11 @@ enum MarkdownWriter {
                     marked = "**\(marked)**"
                 }
             }
+            // Outside the code branch: strikethrough composes with a code
+            // span (~~`x`~~), unlike emphasis, which code suppresses.
+            if run.strikethrough {
+                marked = "~~\(marked)~~"
+            }
             if let link = run.link {
                 marked = linked(marked, to: link)
             }
@@ -112,11 +117,6 @@ enum MarkdownWriter {
         return ticks + pad + text + pad + ticks
     }
 
-    /// Captured links render clickable in the panel and in external
-    /// editors; anything outside this list (javascript:, data:, …) drops
-    /// the link and keeps the text.
-    private static let safeSchemes: Set<String> = ["http", "https", "mailto"]
-
     /// A `]` in the label or whitespace/unbalanced parens in the
     /// destination would end the link early; a destination Markdown can't
     /// represent at all — or shouldn't carry — drops the link and keeps
@@ -133,7 +133,7 @@ enum MarkdownWriter {
             let scheme = String(destination[..<colon]).lowercased()
             let isSchemeToken = scheme.first?.isLetter == true
                 && scheme.allSatisfy { $0.isLetter || $0.isNumber || $0 == "+" || $0 == "-" || $0 == "." }
-            if isSchemeToken, !safeSchemes.contains(scheme) {
+            if isSchemeToken, !LinkPolicy.safeSchemes.contains(scheme) {
                 return label
             }
         }

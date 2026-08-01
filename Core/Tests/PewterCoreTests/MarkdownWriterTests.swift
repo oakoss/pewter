@@ -172,6 +172,14 @@ struct MarkdownWriterTests {
         #expect(MarkdownWriter.markdown(from: [.paragraph([RichTextRun("x", link: "")])]) == "x")
     }
 
+    @Test func strikethroughRunsWrapInTildes() {
+        #expect(MarkdownWriter.markdown(from: [.paragraph([RichTextRun("gone", strikethrough: true)])])
+            == "~~gone~~")
+        #expect(MarkdownWriter.markdown(from: [
+            .paragraph([RichTextRun("x", code: true, strikethrough: true)]),
+        ]) == "~~`x`~~")
+    }
+
     @Test func quotePrefixes() {
         let markdown = MarkdownWriter.markdown(from: [
             .quote([RichTextRun("wise words")]),
