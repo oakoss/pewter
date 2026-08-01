@@ -59,6 +59,7 @@ enum HTMLLexer {
     /// would match a "name=" that sits inside another attribute's quoted
     /// value.
     static func attribute(_ name: String, in attributes: String) -> String? {
+        let name = name.lowercased()
         var rest = Substring(attributes)
         while true {
             rest = rest.drop(while: { $0.isWhitespace || $0 == "/" })

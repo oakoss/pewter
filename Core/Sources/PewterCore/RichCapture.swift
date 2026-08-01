@@ -2,7 +2,7 @@ import Foundation
 import os
 
 /// The capturable flavors of one pasteboard read. Each flavor is fetched
-/// lazily, on first access, since pasteboard flavors can be promised and
+/// only when accessed, since pasteboard flavors can be promised and
 /// materialized by the source app on demand — reading a flavor the cascade
 /// never reaches would otherwise pay provider IPC for bytes that get
 /// discarded.

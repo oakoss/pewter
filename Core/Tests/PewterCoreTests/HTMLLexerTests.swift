@@ -45,6 +45,7 @@ struct HTMLLexerTests {
 
     @Test func attributeNamesMatchCaseInsensitively() {
         #expect(HTMLLexer.attribute("href", in: #" HREF="x""#) == "x")
+        #expect(HTMLLexer.attribute("HREF", in: #" href="x""#) == "x")
     }
 
     @Test func attributeValuesDecodeEntities() {
