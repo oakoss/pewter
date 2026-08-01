@@ -19,6 +19,8 @@ struct ItemRow: View {
     let onMenuCopy: () -> Void
     let onMenuCopyList: () -> Void
     let onMenuToggle: () -> Void
+    let canMerge: Bool
+    let onMenuMerge: () -> Void
     let onDelete: () -> Void
 
     @State private var editText = ""
@@ -58,6 +60,10 @@ struct ItemRow: View {
             Divider()
             Button(menuMarksDone ? "Mark as Done" : "Mark as Not Done") { onMenuToggle() }
             Button("Edit") { onBeginEdit() }
+            // Always visible, disabled outside a multi-selection: a stable
+            // menu teaches the feature; hiding it hides that it exists.
+            Button("Merge Notes") { onMenuMerge() }
+                .disabled(!canMerge)
             Divider()
             Button("Delete", role: .destructive) { onDelete() }
         }

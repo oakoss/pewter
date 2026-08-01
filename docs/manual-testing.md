@@ -158,6 +158,15 @@ or the status item / panel / window layer.
       press despite the new note being selected)
 - [ ] Keyboard: ↑/↓ select, Space toggles, Enter edits, Delete removes,
       Cmd+C copies item, Cmd+Shift+C copies list, Cmd+F focuses search
+- [ ] Select two or more notes → Cmd+Shift+M (or right-click → Merge
+      Notes) merges them into the topmost note's position, texts joined
+      in list order with a blank line between them; the merged note is
+      selected, briefly highlighted, and scrolled into view;
+      done state carries over only when every source was done
+- [ ] Cmd+Z after a merge restores the original notes exactly (the
+      merged note splits back apart); Merge Notes shows grayed out in the
+      context menu with a single selection, and Cmd+Shift+M does nothing
+      while typing in a text field
 - [ ] Hover a row → copy button appears on the right; click copies (brief
       checkmark); ⌥-click copies AND marks done (already-done items stay done)
 - [ ] Select rows, then click into another app so it becomes frontmost —

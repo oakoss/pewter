@@ -88,6 +88,14 @@ struct PanelRootView: View {
                   focus == .list || focus == nil else { return .ignored }
             return undoDelete()
         }
+        .onKeyPress(keys: ["m", "M"], phases: .down) { press in
+            // Same focus rule as Cmd+A: in a text field the key keeps its
+            // field meaning.
+            guard press.modifiers.contains(.command), press.modifiers.contains(.shift),
+                  press.modifiers.isDisjoint(with: [.option, .control]),
+                  focus == .list || focus == nil else { return .ignored }
+            return mergeSelected()
+        }
         .onKeyPress(keys: ["f"], phases: .down) { press in
             guard press.modifiers.contains(.command) else { return .ignored }
             focus = .search
@@ -173,12 +181,13 @@ struct PanelRootView: View {
                 // Cmd+C) have a focus state distinct from the text fields.
                 LazyVStack(spacing: 4) {
                     ForEach(items) { item in
+                        let isRowSelected = selection.isSelected(item.id)
                         ItemRow(
                             item: item,
-                            isSelected: selection.isSelected(item.id),
+                            isSelected: isRowSelected,
                             isHighlighted: item.id == uiState.highlightedItemID,
                             isEditing: item.id == editingID,
-                            menuMarksDone: selection.isSelected(item.id) ? selectionMarksDone : !item.done,
+                            menuMarksDone: isRowSelected ? selectionMarksDone : !item.done,
                             editorFocus: $focus,
                             onToggle: { store.toggleDone(ids: [item.id]) },
                             onSelect: { select(item) },
@@ -192,6 +201,8 @@ struct PanelRootView: View {
                             onMenuCopy: { copy(targets(for: item)) },
                             onMenuCopyList: { copyAsList(targets(for: item)) },
                             onMenuToggle: { toggleDone(targets(for: item)) },
+                            canMerge: selection.isMultiple && isRowSelected,
+                            onMenuMerge: { _ = mergeSelected() },
                             onDelete: { delete(ids: Set(targets(for: item).map(\.id))) }
                         )
                         .id(item.id)
@@ -215,8 +226,8 @@ struct PanelRootView: View {
                 focus = .list
             }
             .onChange(of: store.items.count) {
-                // An explicit request (undo restore) wins over the
-                // tail-append heuristic — a restored note can land mid-list.
+                // An explicit request (undo restore, merge) wins over the
+                // tail-append heuristic — those notes can land mid-list.
                 if let target = uiState.takeScrollTarget() {
                     withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(target) }
                 } else if let last = store.items.last, uiState.query.isEmpty {
@@ -323,6 +334,17 @@ struct PanelRootView: View {
         guard focus == .list, let id = selection.single,
               let item = visibleItems.first(where: { $0.id == id }) else { return .ignored }
         beginEdit(item)
+        return .handled
+    }
+
+    private func mergeSelected() -> KeyPress.Result {
+        guard selection.isMultiple,
+              let merged = store.merge(ids: selection.selected) else { return .ignored }
+        selection.select(merged.id)
+        uiState.highlight(merged.id)
+        // Explicit request wins over the tail-append heuristic — the merged
+        // note lands mid-list, same as an undo restore.
+        uiState.requestScroll(to: merged.id)
         return .handled
     }
 
