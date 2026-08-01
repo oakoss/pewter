@@ -51,13 +51,13 @@ public final class CaptureCoordinator {
     /// UTF-8 bytes, ellipsis included, cutting on Character boundaries so a
     /// grapheme at the cap is dropped whole. Leading whitespace is dropped
     /// before measuring — it's trimmed downstream anyway, and letting it eat
-    /// the budget would discard the content behind it. The bounded prefix
-    /// keeps the character check O(cap); the byte check is O(1) on native
-    /// strings but not on bridged ones.
+    /// the budget would discard the content behind it. Bounded prefixes keep
+    /// both checks O(cap) even on bridged strings, where a plain count walks
+    /// the whole selection.
     static func capped(_ text: String) -> String {
         let head = text.drop(while: \.isWhitespace)
         let overChars = head.prefix(captureLengthCap + 1).count > captureLengthCap
-        let overBytes = head.utf8.count > captureByteCap
+        let overBytes = head.utf8.prefix(captureByteCap + 1).count > captureByteCap
         guard overChars || overBytes else { return text }
 
         var cut = String(head.prefix(captureLengthCap - 1))
