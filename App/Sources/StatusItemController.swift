@@ -1,31 +1,24 @@
 import AppKit
-import PewterCore
 
 @MainActor
 final class StatusItemController: NSObject {
     private let statusItem: NSStatusItem
     private let onToggle: (NSStatusBarButton?) -> Void
     private let onRevealFile: () -> Void
+    private let onShowSettings: () -> Void
     private let onShowPermissions: () -> Void
-    private let onSelectTapModifier: (CaptureSettings.TapModifier) -> Void
-    private let onSelectChordHotKey: (CaptureSettings.ChordHotKey) -> Void
-    private let onSelectToggleHotKey: (PanelSettings.ToggleHotKey) -> Void
 
     init(
         onToggle: @escaping (NSStatusBarButton?) -> Void,
         onRevealFile: @escaping () -> Void,
-        onShowPermissions: @escaping () -> Void,
-        onSelectTapModifier: @escaping (CaptureSettings.TapModifier) -> Void,
-        onSelectChordHotKey: @escaping (CaptureSettings.ChordHotKey) -> Void,
-        onSelectToggleHotKey: @escaping (PanelSettings.ToggleHotKey) -> Void
+        onShowSettings: @escaping () -> Void,
+        onShowPermissions: @escaping () -> Void
     ) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         self.onToggle = onToggle
         self.onRevealFile = onRevealFile
+        self.onShowSettings = onShowSettings
         self.onShowPermissions = onShowPermissions
-        self.onSelectTapModifier = onSelectTapModifier
-        self.onSelectChordHotKey = onSelectChordHotKey
-        self.onSelectToggleHotKey = onSelectToggleHotKey
         super.init()
 
         if let button = statusItem.button {
@@ -82,57 +75,11 @@ final class StatusItemController: NSObject {
 
         menu.addItem(.separator())
 
-        let shortcutMenu = NSMenu()
-        for modifier in CaptureSettings.TapModifier.allCases {
-            let item = NSMenuItem(
-                title: modifier.menuTitle,
-                action: #selector(selectTapModifier(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.representedObject = modifier.rawValue
-            item.state = modifier == CaptureSettings.tapModifier ? .on : .off
-            shortcutMenu.addItem(item)
-        }
-        let shortcutItem = NSMenuItem(title: "Capture Shortcut", action: nil, keyEquivalent: "")
-        shortcutItem.submenu = shortcutMenu
-        menu.addItem(shortcutItem)
-
-        let chordMenu = NSMenu()
-        for chord in CaptureSettings.ChordHotKey.allCases {
-            let item = NSMenuItem(title: chord.menuTitle, action: #selector(selectChordHotKey(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = chord.rawValue
-            item.state = chord == CaptureSettings.chordHotKey ? .on : .off
-            chordMenu.addItem(item)
-        }
-        let chordItem = NSMenuItem(title: "Capture Hotkey", action: nil, keyEquivalent: "")
-        chordItem.submenu = chordMenu
-        menu.addItem(chordItem)
-
-        let toggleMenu = NSMenu()
-        for hotKey in PanelSettings.ToggleHotKey.allCases {
-            let item = NSMenuItem(title: hotKey.menuTitle, action: #selector(selectToggleHotKey(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = hotKey.rawValue
-            item.state = hotKey == PanelSettings.toggleHotKey ? .on : .off
-            toggleMenu.addItem(item)
-        }
-        let toggleItem = NSMenuItem(title: "Panel Hotkey", action: nil, keyEquivalent: "")
-        toggleItem.submenu = toggleMenu
-        menu.addItem(toggleItem)
-
-        let listStyleMenu = NSMenu()
-        for style in ItemFormatter.ListStyle.allCases {
-            let item = NSMenuItem(title: style.menuTitle, action: #selector(selectListStyle(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = style.rawValue
-            item.state = style == PanelSettings.listCopyStyle ? .on : .off
-            listStyleMenu.addItem(item)
-        }
-        let listStyleItem = NSMenuItem(title: "Copy as List Style", action: nil, keyEquivalent: "")
-        listStyleItem.submenu = listStyleMenu
-        menu.addItem(listStyleItem)
+        // Configuration lives in the settings window; the menu stays a
+        // launcher. Cmd+, is what menubar-app users reflexively try.
+        let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
 
         let permissions = NSMenuItem(title: "Permissions…", action: #selector(showPermissions), keyEquivalent: "")
         permissions.target = self
@@ -178,49 +125,11 @@ final class StatusItemController: NSObject {
         onRevealFile()
     }
 
+    @objc private func showSettings() {
+        onShowSettings()
+    }
+
     @objc private func showPermissions() {
         onShowPermissions()
-    }
-
-    @objc private func selectTapModifier(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let modifier = CaptureSettings.TapModifier(rawValue: raw)
-        else {
-            assertionFailure("menu item carried an unknown tap modifier")
-            return
-        }
-        onSelectTapModifier(modifier)
-    }
-
-    @objc private func selectChordHotKey(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let chord = CaptureSettings.ChordHotKey(rawValue: raw)
-        else {
-            assertionFailure("menu item carried an unknown chord hotkey")
-            return
-        }
-        onSelectChordHotKey(chord)
-    }
-
-    @objc private func selectToggleHotKey(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let hotKey = PanelSettings.ToggleHotKey(rawValue: raw)
-        else {
-            assertionFailure("menu item carried an unknown panel hotkey")
-            return
-        }
-        onSelectToggleHotKey(hotKey)
-    }
-
-    @objc private func selectListStyle(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let style = ItemFormatter.ListStyle(rawValue: raw)
-        else {
-            assertionFailure("menu item carried an unknown list style")
-            return
-        }
-        // Written directly rather than routed through AppDelegate: unlike the
-        // capture triggers, nothing needs re-arming when this changes.
-        PanelSettings.listCopyStyle = style
     }
 }

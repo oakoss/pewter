@@ -13,6 +13,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotKeyCenter: HotKeyCenter?
     private var captureCoordinator: CaptureCoordinator?
     private var onboarding: OnboardingWindowController?
+    private var settingsController: SettingsWindowController?
+    /// True while a shortcut recording is active: arming paths triggered
+    /// from elsewhere (the permission poll, the gesture picker) must not
+    /// silently undo the suspend.
+    private var hotKeysSuspended = false
     private var clipboardTracker: ClipboardActivityTracker?
     private let uiState = PanelUIState()
 
@@ -39,20 +44,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onRevealFile: {
                 NSWorkspace.shared.activateFileViewerSelecting([storage.fileURL])
             },
+            onShowSettings: { [weak self] in
+                self?.showSettings()
+            },
             onShowPermissions: { [weak self] in
                 self?.onboarding?.show()
-            },
-            onSelectTapModifier: { [weak self] modifier in
-                CaptureSettings.tapModifier = modifier
-                self?.applyCaptureTriggers()
-            },
-            onSelectChordHotKey: { [weak self] chord in
-                CaptureSettings.chordHotKey = chord
-                self?.applyCaptureTriggers()
-            },
-            onSelectToggleHotKey: { [weak self] hotKey in
-                PanelSettings.toggleHotKey = hotKey
-                self?.applyPanelToggleHotKey()
             }
         )
         self.statusItemController = statusItemController
@@ -156,6 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Accessibility grant.
     private func applyCaptureTriggers() {
         uiState.captureHint = CaptureSettings.tapModifier.hint
+        guard !hotKeysSuspended else { return }
 
         if permission?.isTrusted == true {
             tapMonitor?.start(target: CaptureSettings.tapModifier.flag)
@@ -163,17 +160,99 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             tapMonitor?.stop()
         }
 
-        if hotKeyCenter?.arm(.capture, chord: CaptureSettings.chordHotKey.chord) == .failed {
-            CaptureSettings.chordHotKey = .off
+        if !armCaptureFromSettings() {
             panelController?.show(relativeTo: statusItemController?.button)
-            uiState.showToast("Couldn't set up the hotkey — it may be in use by another app")
+            uiState.showToast("Couldn't set up the capture hotkey — it may be in use by another app")
         }
+    }
+
+    private func armCaptureFromSettings() -> Bool {
+        guard hotKeyCenter?.arm(.capture, chord: CaptureSettings.captureChord?.carbonChord) == .failed else {
+            return true
+        }
+        CaptureSettings.captureChord = nil
+        return false
+    }
+
+    private func armToggleFromSettings() -> Bool {
+        guard hotKeyCenter?.arm(.panelToggle, chord: PanelSettings.toggleChord?.carbonChord) == .failed else {
+            return true
+        }
+        PanelSettings.toggleChord = nil
+        return false
+    }
+
+    /// Single writer for a recorded chord: persists, arms, and on refusal
+    /// restores the previous working chord — one mistyped conflict must not
+    /// destroy a good shortcut.
+    private func setCaptureChord(_ chord: KeyChord?) -> String? {
+        // Recording resumes before applying its pick; only Turn Off (nil)
+        // may arrive while suspended, and arming nil cannot un-suspend.
+        assert(!hotKeysSuspended || chord == nil)
+        let previous = CaptureSettings.captureChord
+        CaptureSettings.captureChord = chord
+        guard hotKeyCenter?.arm(.capture, chord: chord?.carbonChord) == .failed else { return nil }
+        CaptureSettings.captureChord = previous
+        // The id is disarmed after a refusal, so this is a real
+        // registration attempt; a stored chord must never display as
+        // active while nothing is registered.
+        if hotKeyCenter?.arm(.capture, chord: previous?.carbonChord) == .failed {
+            CaptureSettings.captureChord = nil
+            return "That shortcut is taken — and another app claimed the previous one too"
+        }
+        return "That shortcut is taken by another app"
+    }
+
+    private func setToggleChord(_ chord: KeyChord?) -> String? {
+        // Recording resumes before applying its pick; only Turn Off (nil)
+        // may arrive while suspended, and arming nil cannot un-suspend.
+        assert(!hotKeysSuspended || chord == nil)
+        let previous = PanelSettings.toggleChord
+        PanelSettings.toggleChord = chord
+        guard hotKeyCenter?.arm(.panelToggle, chord: chord?.carbonChord) == .failed else { return nil }
+        PanelSettings.toggleChord = previous
+        if hotKeyCenter?.arm(.panelToggle, chord: previous?.carbonChord) == .failed {
+            PanelSettings.toggleChord = nil
+            return "That shortcut is taken — and another app claimed the previous one too"
+        }
+        return "That shortcut is taken by another app"
+    }
+
+    func showSettings() {
+        if settingsController == nil {
+            settingsController = SettingsWindowController(actions: SettingsActions(
+                applyCaptureChord: { [weak self] in self?.setCaptureChord($0) },
+                applyToggleChord: { [weak self] in self?.setToggleChord($0) },
+                applyTapModifier: { [weak self] in self?.applyCaptureTriggers() },
+                suspendHotKeys: { [weak self] in
+                    guard let self else { return }
+                    hotKeysSuspended = true
+                    // The double-tap monitor pauses too — fumbling a chord
+                    // (tap, release, tap) must not fire a capture over the
+                    // settings window.
+                    tapMonitor?.stop()
+                    _ = hotKeyCenter?.arm(.capture, chord: nil)
+                    _ = hotKeyCenter?.arm(.panelToggle, chord: nil)
+                },
+                resumeHotKeys: { [weak self] in
+                    guard let self else { return (true, true) }
+                    hotKeysSuspended = false
+                    if permission?.isTrusted == true {
+                        tapMonitor?.start(target: CaptureSettings.tapModifier.flag)
+                    }
+                    // Failures surface as recorder hints — the panel toast
+                    // isn't visible with the settings window frontmost.
+                    return (armCaptureFromSettings(), armToggleFromSettings())
+                }
+            ))
+        }
+        settingsController?.show()
     }
 
     /// (Re)arms the panel toggle hotkey; permission-free, so always armed.
     private func applyPanelToggleHotKey() {
-        if hotKeyCenter?.arm(.panelToggle, chord: PanelSettings.toggleHotKey.chord) == .failed {
-            PanelSettings.toggleHotKey = .off
+        guard !hotKeysSuspended else { return }
+        if !armToggleFromSettings() {
             panelController?.show(relativeTo: statusItemController?.button)
             uiState.showToast("Couldn't set up the panel hotkey — it may be in use by another app")
         }

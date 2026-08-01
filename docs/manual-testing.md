@@ -20,29 +20,68 @@ or the status item / panel / window layer.
       Accessibility (the deep link uses a legacy settings anchor — re-verify
       on each new macOS major)
 
-## Capture trigger configuration
+## Settings window
 
-- [ ] Status item right-click → Capture Shortcut → Double-tap ⌃ Control →
-      double-tap Control captures; double-tap Shift no longer does
+- [ ] Status item right-click → Settings… opens an activating titled window;
+      Esc does NOT close it (Esc is panel behavior); the red close button
+      does; position survives reopen
+- [ ] Capture gesture picker → Double-tap ⌃ Control → double-tap Control
+      captures; double-tap Shift no longer does; the panel's empty-state
+      hint matches the chosen modifier
       (note: double-tap ⌘ conflicts with macOS's Type to Siri shortcut when
       that's enabled, and double-tap ⇧ conflicts with Karabiner SpaceCadet —
       Control and Option are the conflict-free choices)
-- [ ] Capture Hotkey → ⌃⇧C → pressing it fires even with Accessibility
+- [ ] Capture selection → Change → badge flips to "Press shortcut…"; typing
+      leaks nothing into fields behind it; Esc cancels recording and keeps
+      the old value; a bare key or shift-only chord shows the inline
+      "Include ⌃, ⌥, or ⌘" hint and keeps recording; a ⌘-only chord
+      like ⌘Q shows the "would shadow a standard shortcut" hint (and does
+      not quit) and keeps recording
+- [ ] Any inline hint is fully visible when it appears — the form scrolls
+      if space runs short; the hint row is never clipped
+- [ ] With the settings window key, press ⌘, → it stays the settings
+      window (the empty SwiftUI Settings scene never opens)
+- [ ] Record ⌃⇧C for capture → pressing it fires even with Accessibility
       revoked (Carbon hotkeys need no permission), but the capture itself is
       blocked: expect the onboarding/not-permitted flow, not a captured item
-- [ ] Settings survive relaunch; the panel's empty-state hint matches the
-      chosen modifier
-- [ ] Panel Hotkey → ⌃⇧P → pressing it shows the panel from any app and
-      pressing it again hides it, even with Accessibility revoked (Carbon
-      hotkeys need no permission); Off stops it; the choice survives
-      relaunch; switching to ⌃⇧Space stops the old chord and arms the new
-      one
+- [ ] Show or hide panel → record ⌃⇧P → pressing it shows the panel from any
+      app and pressing it again hides it; Turn Off stops it; both shortcuts
+      survive relaunch; re-recording a different chord stops the old one
+- [ ] While a shortcut is armed, press Change and then press that same
+      chord → it is recorded (the live hotkey is suspended during
+      recording), and re-armed on cancel
+- [ ] Record a chord already claimed by another app → inline "shortcut is
+      taken" error under the recorder and the previous shortcut keeps
+      working — no toast, no panel popping open
+- [ ] Record the capture shortcut's chord as the panel shortcut → inline
+      "Already used by Capture selection" error, nothing re-registered
+- [ ] Press Change, then close the window with the red close button →
+      typing in the panel still works, armed shortcuts still fire, and
+      reopening Settings shows the recorder idle
+- [ ] Press Change on one shortcut, then Change on the other → the first
+      recorder returns to idle; only the second records
+- [ ] Press Change, then click into another app (or summon the panel) →
+      recording cancels when Settings loses key; typing elsewhere is not
+      swallowed
+- [ ] Press Change, then switch the Capture gesture picker → the gesture
+      choice applies but the tap monitor and hotkeys stay suspended until
+      recording ends (no capture can fire mid-recording)
+- [ ] While recording, double-tap the capture modifier → no capture fires
+      (the tap monitor pauses during recording, and resumes after)
+- [ ] Bind the suspended chord in another app while recording → on cancel
+      the badge flips to Off with the inline "Another app claimed this
+      shortcut" hint (no toast)
+- [ ] Copy as List style picker switches the copy format between numbered
+      (1. 2. 3., the default), bulleted (-), and task list (- [ ]); persists
+      across relaunch and applies to both Cmd+Shift+C and the context
+      menu's Copy as List
+- [ ] About shows the version; the GitHub link opens the repo
 - [ ] With both hotkeys set (capture ⌃⇧C, panel ⌃⇧P), each fires its own
       action — neither swallows the other
-- [ ] With ⌃⇧P already claimed by another app (any hotkey utility bound to
-      the same chord), selecting Panel Hotkey → ⌃⇧P shows the panel with
-      the "Couldn't set up the panel hotkey" toast and the menu reverts to
-      Off; same flow for a claimed Capture Hotkey chord
+- [ ] Quit Pewter, bind its panel chord in another hotkey utility, then
+      relaunch → the panel appears with the "Couldn't set up the panel
+      hotkey" toast and Settings shows the shortcut Off; same flow for the
+      capture chord (launch-time arming is the only toast path)
 
 ## Double-tap detection (default: Shift)
 
@@ -73,10 +112,8 @@ or the status item / panel / window layer.
 - [ ] Right-click the status item → menu opens just below the menu bar like
       other system menus, aligned with the icon, with every item visible —
       "Reveal Notes File in Finder" first, no scroll chevron at the top
-- [ ] Copy as List Style submenu switches the copy format between numbered
-      (1. 2. 3., the default), bulleted (-), and task list (- [ ]); the
-      choice persists across relaunch and applies to both Cmd+Shift+C and
-      the context menu's Copy as List
+- [ ] The menu is a launcher only: Reveal Notes File, Settings…,
+      Permissions…, Quit — no configuration submenus
 - [ ] Menu bar style set to Tinted (macOS 26, Appearance settings) with
       Reduce Transparency on → the status icon stays legible
 - [ ] Status item near the right screen edge (Cmd-drag it as far right as it
