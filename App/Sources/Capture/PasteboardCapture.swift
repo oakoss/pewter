@@ -5,8 +5,11 @@ import PewterCore
 
 /// Fallback capture for apps that don't expose their selection to the
 /// Accessibility API: synthesize Cmd+C, read the pasteboard, put the user's
-/// previous clipboard back.
-struct PasteboardCapture: PasteboardCapturing {
+/// previous clipboard back. This is only the AppKit adapter — the
+/// sequencing and every fallback decision live in Core's
+/// `PasteboardCaptureRunner`.
+@MainActor
+struct PasteboardCapture: PasteboardCapturing, PasteboardCaptureSurface {
     private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "capture")
 
     /// True when the clipboard changed within the last few seconds. TUIs
@@ -14,17 +17,24 @@ struct PasteboardCapture: PasteboardCapturing {
     /// plus a dead synthetic Cmd+C means the clipboard already holds the
     /// selection. Required at init — a defaulted `false` would silently
     /// disable the TUI capture path if the wiring were ever dropped.
-    let recentClipboardChange: @MainActor () -> Bool
+    private let recentChange: @MainActor () -> Bool
 
     /// Bracket this capture's clipboard traffic (synthesis through restore)
     /// so it never reads as selection activity.
-    let beginOwnWrites: @MainActor () -> Void
-    let endOwnWrites: @MainActor () -> Void
+    private let ownWritesBegin: @MainActor () -> Void
+    private let ownWritesEnd: @MainActor () -> Void
 
-    @MainActor
+    init(
+        recentClipboardChange: @escaping @MainActor () -> Bool,
+        beginOwnWrites: @escaping @MainActor () -> Void,
+        endOwnWrites: @escaping @MainActor () -> Void
+    ) {
+        recentChange = recentClipboardChange
+        ownWritesBegin = beginOwnWrites
+        ownWritesEnd = endOwnWrites
+    }
+
     func capture() async -> PasteboardCaptureResult {
-        let pasteboard = NSPasteboard.general
-
         // Wait for physical modifiers to clear before synthesizing: the chord
         // hotkey fires on key-down with its modifiers guaranteed held, and on
         // the tap path the key-up event can precede the combined-state flags
@@ -48,79 +58,34 @@ struct PasteboardCapture: PasteboardCapturing {
         try? await Task.sleep(for: .milliseconds(15))
         guard !Task.isCancelled else { return .failed }
 
-        // Snapshot immediately before the copy — taken any earlier, a
-        // clipboard-manager write during the modifier wait would read as our
-        // copy landing, capturing foreign content and clobbering it on
-        // restore.
-        let saved = snapshot(pasteboard)
-        let baseline = pasteboard.changeCount
-
-        beginOwnWrites()
-        defer { endOwnWrites() }
-
-        guard await postCommandC(to: nil) else {
-            Self.logger.error("Cmd+C synthesis failed; capture aborted")
-            return .failed
-        }
-
-        var changeCountAfterCopy = await pollForChange(on: pasteboard, baseline: baseline)
-        guard !Task.isCancelled else { return .failed }
-
-        // Some GPU terminals ignore synthetic events from the HID tap but
-        // accept them delivered directly to their process.
-        if changeCountAfterCopy == nil {
-            if let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier {
-                Self.logger.info("HID-tap copy ignored; retrying via postToPid")
-                guard await postCommandC(to: pid) else { return .failed }
-                changeCountAfterCopy = await pollForChange(on: pasteboard, baseline: baseline)
-                guard !Task.isCancelled else { return .failed }
-            } else {
-                Self.logger.info("HID-tap copy ignored and no frontmost app; skipping postToPid retry")
-            }
-        }
-
-        guard let changeCountAfterCopy else {
-            // A copy landing after the poll windows is still OUR copy —
-            // route it through the normal restore path, or the user's
-            // clipboard is lost and the tracker mistakes it for activity.
-            // Snapshot the count once: reading it live at the restore call
-            // would be tautological and disable the anti-clobber guard.
-            let lateCount = pasteboard.changeCount
-            if lateCount != baseline {
-                Self.logger.info("copy landed after poll window; treating as ours")
-                let late = pasteboard.string(forType: .string)
-                restore(saved, to: pasteboard, expectedChangeCount: lateCount)
-                guard let late, !late.isEmpty else { return .nothingSelected }
-                return .copied(late)
-            }
-            // No copy at all. If the clipboard changed moments before the
-            // capture, a TUI's copy-on-select already delivered the
-            // selection there — use it (and leave it; it belongs to this
-            // selection).
-            if recentClipboardChange() {
-                if let recent = pasteboard.string(forType: .string), !recent.isEmpty {
-                    Self.logger.info("using recently auto-copied clipboard content")
-                    return .copied(recent)
-                }
-                Self.logger.info("recent clipboard change held no string content")
-                return .nothingSelected
-            }
-            // Otherwise: nothing was selected; the clipboard is untouched.
-            Self.logger.debug("no pasteboard change within capture window")
-            return .nothingSelected
-        }
-
-        let copied = pasteboard.string(forType: .string)
-
-        // Restore even when the copy produced no text (image/file selection) —
-        // the synthetic copy still replaced the user's clipboard.
-        restore(saved, to: pasteboard, expectedChangeCount: changeCountAfterCopy)
-
-        guard let copied, !copied.isEmpty else { return .nothingSelected }
-        return .copied(copied)
+        return await PasteboardCaptureRunner.run(on: self)
     }
 
-    // MARK: - Clipboard snapshot / restore
+    // MARK: - PasteboardCaptureSurface
+
+    var changeCount: Int {
+        NSPasteboard.general.changeCount
+    }
+
+    var frontmostAppPid: pid_t? {
+        NSWorkspace.shared.frontmostApplication?.processIdentifier
+    }
+
+    func string() -> String? {
+        NSPasteboard.general.string(forType: .string)
+    }
+
+    func recentClipboardChange() -> Bool {
+        recentChange()
+    }
+
+    func beginOwnWrites() {
+        ownWritesBegin()
+    }
+
+    func endOwnWrites() {
+        ownWritesEnd()
+    }
 
     /// Types worth restoring. Materializing every flavor would force
     /// provider IPC for large promised payloads (Photoshop, Keynote) and
@@ -129,8 +94,8 @@ struct PasteboardCapture: PasteboardCapturing {
         .string, .rtf, .rtfd, .html, .URL, .fileURL, .tiff, .png, .pdf,
     ]
 
-    private func snapshot(_ pasteboard: NSPasteboard) -> [NSPasteboardItem] {
-        (pasteboard.pasteboardItems ?? []).compactMap { item in
+    func saveClipboard() -> [NSPasteboardItem]? {
+        let saved = (NSPasteboard.general.pasteboardItems ?? []).compactMap { item -> NSPasteboardItem? in
             let copy = NSPasteboardItem()
             var copiedAnything = false
             for type in item.types where Self.restorableTypes.contains(type) {
@@ -144,51 +109,18 @@ struct PasteboardCapture: PasteboardCapturing {
             }
             return copiedAnything ? copy : nil
         }
+        return saved.isEmpty ? nil : saved
     }
 
-    private func restore(
-        _ items: [NSPasteboardItem],
-        to pasteboard: NSPasteboard,
-        expectedChangeCount: Int
-    ) {
-        // An empty snapshot (nothing restorable was on the clipboard) must
-        // not clear: leaving the captured text beats erasing everything.
-        guard !items.isEmpty else {
-            Self.logger.debug("no restorable snapshot; leaving captured content on clipboard")
-            return
-        }
-        // If something else wrote to the clipboard since our synthetic copy
-        // (clipboard manager, the user), don't clobber it.
-        guard pasteboard.changeCount == expectedChangeCount else {
-            Self.logger.debug("clipboard changed since capture; skipping restore")
-            return
-        }
+    func restoreClipboard(_ snapshot: [NSPasteboardItem]) {
+        let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        if !pasteboard.writeObjects(items) {
+        if !pasteboard.writeObjects(snapshot) {
             Self.logger.error("failed to restore previous clipboard contents")
         }
     }
 
-    // MARK: - Synthetic Cmd+C
-
-    /// Waits up to ~300 ms for the target app to service the copy; returns
-    /// the post-copy change count, or nil if the pasteboard never changed.
-    @MainActor
-    private func pollForChange(on pasteboard: NSPasteboard, baseline: Int) async -> Int? {
-        for _ in 0 ..< 15 {
-            try? await Task.sleep(for: .milliseconds(20))
-            if Task.isCancelled {
-                return nil
-            }
-            if pasteboard.changeCount != baseline {
-                return pasteboard.changeCount
-            }
-        }
-        return nil
-    }
-
-    /// Posts Cmd+C to the HID tap (pid nil), or directly to a process.
-    private func postCommandC(to pid: pid_t?) async -> Bool {
+    func synthesizeCopy(to pid: pid_t?) async -> Bool {
         guard let source = CGEventSource(stateID: .combinedSessionState) else { return false }
         let key = CGKeyCode(kVK_ANSI_C)
 
@@ -215,5 +147,20 @@ struct PasteboardCapture: PasteboardCapturing {
             keyUp.post(tap: .cghidEventTap)
         }
         return true
+    }
+
+    /// Waits up to ~300 ms for the target app to service the copy.
+    func pollForChange(from baseline: Int) async -> Int? {
+        let pasteboard = NSPasteboard.general
+        for _ in 0 ..< 15 {
+            try? await Task.sleep(for: .milliseconds(20))
+            if Task.isCancelled {
+                return nil
+            }
+            if pasteboard.changeCount != baseline {
+                return pasteboard.changeCount
+            }
+        }
+        return nil
     }
 }
