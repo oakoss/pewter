@@ -60,8 +60,9 @@ struct ItemRow: View {
             Divider()
             Button(menuMarksDone ? "Mark as Done" : "Mark as Not Done") { onMenuToggle() }
             Button("Edit") { onBeginEdit() }
-            // Always visible, disabled outside a multi-selection: a stable
-            // menu teaches the feature; hiding it hides that it exists.
+            // Always visible, disabled unless this row is part of a
+            // multi-selection: a stable menu teaches the feature; hiding it
+            // hides that it exists.
             Button("Merge Notes") { onMenuMerge() }
                 .disabled(!canMerge)
             Divider()
