@@ -46,14 +46,16 @@ struct CaptureCoordinatorTests {
     private func makeCoordinator(
         reader: FakeReader,
         capture: FakeCapture,
-        trusted: Bool = true
+        trusted: Bool = true,
+        now: @escaping () -> Date = { Date() }
     ) -> (CaptureCoordinator, ListStore, Outcomes) {
         let store = ListStore()
         let coordinator = CaptureCoordinator(
             store: store,
             selectionReader: reader,
             pasteboardCapture: capture,
-            isTrusted: { trusted }
+            isTrusted: { trusted },
+            now: now
         )
         let outcomes = Outcomes()
         coordinator.onOutcome = { outcomes.record($0) }
@@ -137,6 +139,213 @@ struct CaptureCoordinatorTests {
         #expect(outcomes.all == [.captureFailed])
     }
 
+    @Test func duplicateCaptureInsideTheWindowResurfacesTheExistingNote() throws {
+        var clock = Date(timeIntervalSince1970: 1_753_000_000)
+        let reader = FakeReader(result: "same selection")
+        let capture = FakeCapture(result: .failed)
+        let (coordinator, store, outcomes) = makeCoordinator(
+            reader: reader,
+            capture: capture,
+            now: { clock }
+        )
+
+        coordinator.captureSelection()
+        clock += 1.5
+        coordinator.captureSelection()
+
+        #expect(store.items.count == 1)
+        let first = try #require(store.items.first)
+        #expect(outcomes.all == [.captured(first), .captured(first)])
+        // These tests exercise the synchronous AX path only.
+        #expect(capture.callCount == 0)
+    }
+
+    @Test func duplicateGuardAlsoCoversThePasteboardFallback() async throws {
+        var clock = Date(timeIntervalSince1970: 1_753_000_000)
+        let reader = FakeReader(result: nil)
+        let capture = FakeCapture(result: .copied("fallback text"))
+        let (coordinator, store, outcomes) = makeCoordinator(
+            reader: reader,
+            capture: capture,
+            now: { clock }
+        )
+
+        coordinator.captureSelection()
+        try await waitUntil { outcomes.all.count == 1 }
+        clock += 1
+        coordinator.captureSelection()
+        try await waitUntil { outcomes.all.count == 2 }
+
+        #expect(store.items.count == 1)
+    }
+
+    @Test func whitespaceRecaptureInsideTheWindowStaysNothingSelected() {
+        var clock = Date(timeIntervalSince1970: 1_753_000_000)
+        let reader = FakeReader(result: "real note")
+        let (coordinator, store, outcomes) = makeCoordinator(
+            reader: reader,
+            capture: FakeCapture(result: .failed),
+            now: { clock }
+        )
+
+        coordinator.captureSelection()
+        clock += 1
+        reader.result = "   "
+        coordinator.captureSelection()
+
+        // Whitespace must fall through to .nothingSelected — the guard
+        // must never match it against a stored note.
+        #expect(store.items.count == 1)
+        #expect(outcomes.all.last == .nothingSelected)
+    }
+
+    @Test func duplicateAtTheWindowBoundariesIsSuppressed() {
+        var clock = Date(timeIntervalSince1970: 1_753_000_000)
+        let reader = FakeReader(result: "same selection")
+        let (coordinator, store, _) = makeCoordinator(
+            reader: reader,
+            capture: FakeCapture(result: .failed),
+            now: { clock }
+        )
+
+        // Same instant: the exact double-fire the guard exists for.
+        coordinator.captureSelection()
+        coordinator.captureSelection()
+        #expect(store.items.count == 1)
+
+        clock += 2
+        coordinator.captureSelection()
+        #expect(store.items.count == 1)
+    }
+
+    @Test func backwardClockAdjustmentDoesNotSuppressCaptures() {
+        var clock = Date(timeIntervalSince1970: 1_753_000_000)
+        let reader = FakeReader(result: "same selection")
+        let (coordinator, store, _) = makeCoordinator(
+            reader: reader,
+            capture: FakeCapture(result: .failed),
+            now: { clock }
+        )
+
+        coordinator.captureSelection()
+        clock -= 60
+        coordinator.captureSelection()
+
+        #expect(store.items.count == 2)
+    }
+
+    @Test func editedNoteInsideTheWindowIsCapturedFresh() throws {
+        // The guard compares the stored note's current text, so editing it
+        // opts out of deduplication — an edited note is no longer a
+        // duplicate of what's on screen.
+        var clock = Date(timeIntervalSince1970: 1_753_000_000)
+        let reader = FakeReader(result: "same selection")
+        let (coordinator, store, _) = makeCoordinator(
+            reader: reader,
+            capture: FakeCapture(result: .failed),
+            now: { clock }
+        )
+
+        coordinator.captureSelection()
+        let first = try #require(store.items.first)
+        store.updateText(id: first.id, text: "edited")
+        clock += 1
+        coordinator.captureSelection()
+
+        #expect(store.items.map(\.text) == ["edited", "same selection"])
+    }
+
+    @Test func duplicateGuardComparesNormalizedText() {
+        var clock = Date(timeIntervalSince1970: 1_753_000_000)
+        let reader = FakeReader(result: "  padded  ")
+        let (coordinator, store, _) = makeCoordinator(
+            reader: reader,
+            capture: FakeCapture(result: .failed),
+            now: { clock }
+        )
+
+        coordinator.captureSelection()
+        clock += 1
+        reader.result = "padded"
+        coordinator.captureSelection()
+
+        #expect(store.items.count == 1)
+    }
+
+    @Test func captureOutsideTheWindowAddsAgain() {
+        var clock = Date(timeIntervalSince1970: 1_753_000_000)
+        let reader = FakeReader(result: "same selection")
+        let (coordinator, store, _) = makeCoordinator(
+            reader: reader,
+            capture: FakeCapture(result: .failed),
+            now: { clock }
+        )
+
+        coordinator.captureSelection()
+        clock += 2.5
+        coordinator.captureSelection()
+
+        #expect(store.items.count == 2)
+    }
+
+    @Test func duplicateDoesNotExtendTheWindow() {
+        // The window is measured from the last added note, so a chain of
+        // duplicates cannot suppress captures forever.
+        var clock = Date(timeIntervalSince1970: 1_753_000_000)
+        let reader = FakeReader(result: "same selection")
+        let (coordinator, store, _) = makeCoordinator(
+            reader: reader,
+            capture: FakeCapture(result: .failed),
+            now: { clock }
+        )
+
+        coordinator.captureSelection()
+        clock += 1.5
+        coordinator.captureSelection()
+        #expect(store.items.count == 1)
+        clock += 1
+        coordinator.captureSelection()
+        #expect(store.items.count == 2)
+    }
+
+    @Test func differentTextInsideTheWindowAdds() {
+        var clock = Date(timeIntervalSince1970: 1_753_000_000)
+        let reader = FakeReader(result: "first")
+        let (coordinator, store, _) = makeCoordinator(
+            reader: reader,
+            capture: FakeCapture(result: .failed),
+            now: { clock }
+        )
+
+        coordinator.captureSelection()
+        clock += 0.5
+        reader.result = "second"
+        coordinator.captureSelection()
+
+        #expect(store.items.count == 2)
+    }
+
+    @Test func deletedNoteInsideTheWindowIsCapturedFresh() throws {
+        var clock = Date(timeIntervalSince1970: 1_753_000_000)
+        let reader = FakeReader(result: "same selection")
+        let (coordinator, store, _) = makeCoordinator(
+            reader: reader,
+            capture: FakeCapture(result: .failed),
+            now: { clock }
+        )
+
+        coordinator.captureSelection()
+        let first = try #require(store.items.first)
+        store.delete(ids: [first.id])
+        clock += 1
+        coordinator.captureSelection()
+
+        // The user deleted it on purpose; the guard must not resurrect it
+        // or swallow the new capture.
+        #expect(store.items.count == 1)
+        #expect(store.items.first?.id != first.id)
+    }
+
     @Test func secondCaptureWhileFallbackInFlightIsDropped() async throws {
         let reader = FakeReader(result: nil)
         let capture = FakeCapture(result: .copied("only once"))
@@ -158,7 +367,10 @@ struct CaptureCoordinatorTests {
 
         // The in-flight guard must reset — if it stayed latched, every
         // capture after the first fallback would be silently dropped.
+        // Different text so the duplicate-capture guard stays out of the
+        // in-flight guard's test.
         capture.shouldSuspend = false
+        capture.result = .copied("second text")
         coordinator.captureSelection()
         try await waitUntil { outcomes.all.count == 2 }
         #expect(store.items.count == 2)

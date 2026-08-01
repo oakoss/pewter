@@ -122,6 +122,14 @@ or the status item / panel / window layer.
       waiting longer than ~3 s with no selection → "No text selected"
 - [ ] Nothing selected + double-shift → status icon shows ✕, toast if panel
       open, clipboard untouched
+- [ ] Capture the same selection twice within ~2 s (double-tap fired twice,
+      or tap then hotkey) → one note; when the second fire lands after the
+      first completes, it re-highlights the existing note (a fire during
+      the fallback capture is swallowed by the in-flight guard instead).
+      Capture the same selection again after more than 2 s → a second
+      note (the window is inclusive at exactly 2 s)
+- [ ] Capture, delete the note, capture the same selection within 2 s →
+      a fresh note appears (deleting opts out of the duplicate guard)
 
 ## Status item menu
 
