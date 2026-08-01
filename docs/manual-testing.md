@@ -126,7 +126,8 @@ or the status item / panel / window layer.
       or tap then hotkey) → one note; when the second fire lands after the
       first completes, it re-highlights the existing note (a fire during
       the fallback capture is swallowed by the in-flight guard instead).
-      Capture the same selection again after 2 s → a second note
+      Capture the same selection again after more than 2 s → a second
+      note (the window is inclusive at exactly 2 s)
 - [ ] Capture, delete the note, capture the same selection within 2 s →
       a fresh note appears (deleting opts out of the duplicate guard)
 
