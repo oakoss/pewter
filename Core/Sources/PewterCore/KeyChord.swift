@@ -18,6 +18,11 @@ public struct KeyChord: Codable, Equatable, Sendable {
         public static let command = Modifiers(rawValue: 1 << 3)
     }
 
+    /// kVK codes referenced by name in logic (the display table below
+    /// keeps its literals — it *is* the name mapping).
+    public static let escapeKeyCode: UInt16 = 53
+    public static let tabKeyCode: UInt16 = 48
+
     public let keyCode: UInt16
     public let modifiers: Modifiers
 
@@ -37,7 +42,7 @@ public struct KeyChord: Codable, Equatable, Sendable {
     /// every app's menu equivalents (⌘C, ⌘S, …) — so require a second
     /// modifier alongside ⌘. ⌘⇧Tab is reverse app switching.
     public var isSystemReserved: Bool {
-        modifiers == .command || (modifiers == [.command, .shift] && keyCode == 48)
+        modifiers == .command || (modifiers == [.command, .shift] && keyCode == Self.tabKeyCode)
     }
 
     /// Menu-bar style rendering, e.g. "⌃⇧P" — modifiers in the standard

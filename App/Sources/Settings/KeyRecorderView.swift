@@ -4,15 +4,15 @@ import SwiftUI
 /// All recording state and the key monitor live in KeyRecorderModel — this
 /// view is a plain rendering of it.
 struct KeyRecorderView: View {
-    let target: KeyRecorderModel.Target
+    let slot: HotKeySlot
     let model: KeyRecorderModel
 
     private var chord: KeyChord? {
-        model.chord(for: target)
+        model.chords[slot]
     }
 
     private var isRecording: Bool {
-        model.active == target
+        model.active == slot
     }
 
     var body: some View {
@@ -26,16 +26,16 @@ struct KeyRecorderView: View {
                     .background(badgeBackground, in: RoundedRectangle(cornerRadius: 6))
 
                 Button(isRecording ? "Cancel" : "Change") {
-                    isRecording ? model.cancel() : model.begin(target)
+                    isRecording ? model.cancel() : model.begin(slot)
                 }
 
                 if chord != nil, !isRecording {
                     Button("Turn Off") {
-                        model.clear(target)
+                        model.clear(slot)
                     }
                 }
             }
-            if let hint = model.hints[target] {
+            if let hint = model.hints[slot] {
                 Text(hint)
                     .font(.caption)
                     .foregroundStyle(.red)

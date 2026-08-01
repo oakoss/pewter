@@ -68,7 +68,8 @@ or the status item / panel / window layer.
       taken" error under the recorder and the previous shortcut keeps
       working — no toast, no panel popping open
 - [ ] Record the capture shortcut's chord as the panel shortcut → inline
-      "Already used by Capture selection" error, nothing re-registered
+      "Already used by Capture selection" error, nothing re-registered,
+      and the recorder keeps recording (pick another chord or Esc)
 - [ ] Press Change, then close the window with the red close button →
       typing in the panel still works, armed shortcuts still fire, and
       reopening Settings shows the recorder idle
@@ -93,9 +94,10 @@ or the status item / panel / window layer.
 - [ ] With both hotkeys set (capture ⌃⇧C, panel ⌃⇧P), each fires its own
       action — neither swallows the other
 - [ ] Quit Pewter, bind its panel chord in another hotkey utility, then
-      relaunch → the panel appears with the "Couldn't set up the panel
-      hotkey" toast and Settings shows the shortcut Off; same flow for the
-      capture chord (launch-time arming is the only toast path)
+      relaunch → the panel appears with the "Couldn't set up the Show or
+      hide panel shortcut" toast and Settings shows the shortcut Off; same
+      flow for the capture chord (launch-time arming is the only toast
+      path)
 
 ## Double-tap detection (default: Shift)
 

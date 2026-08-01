@@ -5,7 +5,6 @@ import PewterCore
 /// observation plumbing is needed.
 enum PanelSettings {
     private static let listCopyStyleKey = "panelListCopyStyle"
-    private static let toggleChordKey = "panelToggleChord"
 
     static var listCopyStyle: ItemFormatter.ListStyle {
         get {
@@ -16,16 +15,10 @@ enum PanelSettings {
             UserDefaults.standard.set(newValue.rawValue, forKey: listCopyStyleKey)
         }
     }
-
-    /// nil is off. Recorded free-form in the settings window.
-    static var toggleChord: KeyChord? {
-        get { KeyChord.load(from: .standard, key: toggleChordKey) }
-        set { KeyChord.store(newValue, in: .standard, key: toggleChordKey) }
-    }
 }
 
 extension ItemFormatter.ListStyle {
-    var menuTitle: String {
+    var title: String {
         switch self {
         case .numbered: "Numbered  1. 2. 3."
         case .bulleted: "Bulleted  - - -"

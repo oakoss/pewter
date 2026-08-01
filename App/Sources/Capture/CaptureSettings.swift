@@ -1,5 +1,4 @@
 import AppKit
-import PewterCore
 
 /// User-configurable capture triggers, persisted in UserDefaults. The
 /// double-tap modifier is configurable because tools like Karabiner's
@@ -18,7 +17,7 @@ enum CaptureSettings {
             }
         }
 
-        var menuTitle: String {
+        var title: String {
             switch self {
             case .shift: "Double-tap ⇧ Shift"
             case .control: "Double-tap ⌃ Control"
@@ -38,7 +37,6 @@ enum CaptureSettings {
     }
 
     private static let tapModifierKey = "captureTapModifier"
-    private static let captureChordKey = "captureHotKeyChord"
 
     static var tapModifier: TapModifier {
         get {
@@ -48,11 +46,5 @@ enum CaptureSettings {
         set {
             UserDefaults.standard.set(newValue.rawValue, forKey: tapModifierKey)
         }
-    }
-
-    /// nil is off. Recorded free-form in the settings window.
-    static var captureChord: KeyChord? {
-        get { KeyChord.load(from: .standard, key: captureChordKey) }
-        set { KeyChord.store(newValue, in: .standard, key: captureChordKey) }
     }
 }

@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import os
+import PewterCore
 
 /// Owns every Carbon hotkey registration behind one process-wide event
 /// handler. RegisterEventHotKey needs no Accessibility or Input Monitoring
@@ -8,12 +9,6 @@ import os
 /// SpaceCadet) break the double-tap gesture.
 @MainActor
 final class HotKeyCenter {
-    /// One case per hotkey; the enum makes an id collision unrepresentable.
-    enum HotKeyID: UInt32 {
-        case capture = 1
-        case panelToggle = 2
-    }
-
     struct Chord: Equatable {
         let keyCode: UInt32
         let modifiers: UInt32
@@ -41,8 +36,8 @@ final class HotKeyCenter {
         }
     }
 
-    func setHandler(for id: HotKeyID, _ handler: @escaping () -> Void) {
-        handlers[id.rawValue] = handler
+    func setHandler(for slot: HotKeySlot, _ handler: @escaping () -> Void) {
+        handlers[slot.rawValue] = handler
     }
 
     /// Brings the registration for `id` to `chord` (nil disarms). Reports
@@ -50,13 +45,13 @@ final class HotKeyCenter {
     /// that transiently failed would flip the user's hotkey off. `.failed`
     /// means the OS refused the chord (typically claimed by another app);
     /// surface that, or the configured trigger silently does nothing.
-    func arm(_ id: HotKeyID, chord: Chord?) -> ArmResult {
-        let current = registrations[id.rawValue]
+    func arm(_ slot: HotKeySlot, chord: Chord?) -> ArmResult {
+        let current = registrations[slot.rawValue]
         guard chord != current?.chord else { return .unchanged }
 
         if let current {
             UnregisterEventHotKey(current.ref)
-            registrations[id.rawValue] = nil
+            registrations[slot.rawValue] = nil
         }
         guard let chord else { return .applied }
 
@@ -65,7 +60,7 @@ final class HotKeyCenter {
         let status = RegisterEventHotKey(
             chord.keyCode,
             chord.modifiers,
-            EventHotKeyID(signature: Self.signature, id: id.rawValue),
+            EventHotKeyID(signature: Self.signature, id: slot.rawValue),
             GetApplicationEventTarget(),
             0,
             &ref
@@ -74,7 +69,7 @@ final class HotKeyCenter {
             Self.logger.error("hotkey registration failed (\(status)) — chord likely taken by another app")
             return .failed
         }
-        registrations[id.rawValue] = (chord, ref)
+        registrations[slot.rawValue] = (chord, ref)
         return .applied
     }
 
