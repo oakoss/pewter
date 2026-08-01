@@ -3,47 +3,39 @@ import Observation
 import PewterCore
 
 /// Owns the settings window's single recording session: one local key
-/// monitor, one active target, one suspend/resume of the live hotkeys.
-/// Centralized (rather than per-recorder view state) so starting a second
-/// recorder cancels the first, and a closing window can cancel from
-/// outside the view tree — an orphaned monitor would swallow every
-/// keystroke in the app.
+/// monitor, one active slot. Centralized (rather than per-recorder view
+/// state) so starting a second recorder cancels the first, and a closing
+/// window can cancel from outside the view tree — an orphaned monitor
+/// would swallow every keystroke in the app. Decisions about a pressed
+/// chord live in Core's RecorderArbiter; live-trigger state lives in the
+/// coordinator.
 @MainActor
 @Observable
 final class KeyRecorderModel {
-    enum Target {
-        case capture, panelToggle
-    }
-
-    private(set) var active: Target?
-    private(set) var hints: [Target: String] = [:]
-    private(set) var captureChord = CaptureSettings.captureChord
-    private(set) var toggleChord = PanelSettings.toggleChord
+    private(set) var active: HotKeySlot?
+    private(set) var hints: [HotKeySlot: String] = [:]
+    private(set) var chords: [HotKeySlot: KeyChord] = [:]
 
     private var monitor: Any?
-    private let actions: SettingsActions
+    private let coordinator: HotKeyCoordinating
 
-    init(actions: SettingsActions) {
-        self.actions = actions
-    }
-
-    func chord(for target: Target) -> KeyChord? {
-        target == .capture ? captureChord : toggleChord
+    init(coordinator: HotKeyCoordinating) {
+        self.coordinator = coordinator
+        refreshChords()
     }
 
     /// Re-reads stored chords and drops stale hints; called on every window
     /// show because launch-time arming can revert a setting behind the UI.
     func refresh() {
-        captureChord = CaptureSettings.captureChord
-        toggleChord = PanelSettings.toggleChord
+        refreshChords()
         hints = [:]
     }
 
-    func begin(_ target: Target) {
+    func begin(_ slot: HotKeySlot) {
         cancel()
-        hints[target] = nil
-        active = target
-        actions.suspendHotKeys()
+        hints[slot] = nil
+        active = slot
+        coordinator.beginRecording()
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             self?.handle(event)
             // Swallow every keystroke while recording.
@@ -52,17 +44,18 @@ final class KeyRecorderModel {
     }
 
     /// Ends recording without a pick — Esc, the other recorder starting, or
-    /// the window closing.
+    /// the window closing or losing key.
     func cancel() {
         guard active != nil else { return }
         tearDown()
-        noteResumeFailures(actions.resumeHotKeys())
+        noteFailures(coordinator.endRecording())
         refreshChords()
     }
 
-    func clear(_ target: Target) {
-        hints[target] = nil
-        apply(nil, to: target)
+    func clear(_ slot: HotKeySlot) {
+        hints[slot] = nil
+        coordinator.clear(slot)
+        refreshChords()
     }
 
     private func tearDown() {
@@ -74,68 +67,36 @@ final class KeyRecorderModel {
     }
 
     private func handle(_ event: NSEvent) {
-        guard let target = active else { return }
-        // Bare Escape cancels the recording, mirroring the system recorder;
-        // Esc with a chording modifier is a recordable pick.
-        if event.keyCode == 53,
-           event.modifierFlags.intersection([.control, .option, .shift, .command]).isEmpty
-        {
+        guard let slot = active else { return }
+        switch RecorderArbiter.decide(KeyChord(keyDown: event), for: slot, assignments: chords) {
+        case .cancel:
             cancel()
-            return
+        case let .reject(hint):
+            hints[slot] = hint
+        case let .assign(chord):
+            tearDown()
+            noteFailures(coordinator.endRecording())
+            hints[slot] = coordinator.assign(chord, to: slot)
+            // An endRecording failure may have cleared a stored chord; the
+            // badge must never show one no longer stored or registered.
+            refreshChords()
         }
-        let picked = KeyChord(keyDown: event)
-        guard picked.isValidGlobalHotKey else {
-            hints[target] = "Include ⌃, ⌥, or ⌘ — a bare key would shadow normal typing"
-            return
-        }
-        guard !picked.isSystemReserved else {
-            hints[target] = "\(picked.display) would shadow a standard shortcut — add another modifier"
-            return
-        }
-        tearDown()
-        noteResumeFailures(actions.resumeHotKeys())
-        apply(picked, to: target)
     }
 
     /// A chord claimed by another app while it was deliberately
     /// unregistered for recording comes back refused; the badge flips to
     /// Off and this explains why, where the user is looking.
-    private func noteResumeFailures(_ result: (captureOK: Bool, toggleOK: Bool)) {
-        if !result.captureOK {
-            hints[.capture] = "Another app claimed this shortcut — it was turned off"
-        }
-        if !result.toggleOK {
-            hints[.panelToggle] = "Another app claimed this shortcut — it was turned off"
-        }
-    }
-
-    private func apply(_ chord: KeyChord?, to target: Target) {
-        // Unconditional: a resume failure may have nilled a stored chord,
-        // and even the early-return conflict path must not leave the badge
-        // showing a chord that is no longer stored or registered.
-        defer { refreshChords() }
-        // The two shortcuts registering the same chord would fail with a
-        // misleading "taken by another app" — that app being us.
-        if let chord {
-            let conflict = switch target {
-            case .capture: chord == PanelSettings.toggleChord
-            case .panelToggle: chord == CaptureSettings.captureChord
-            }
-            if conflict {
-                hints[target] = target == .capture
-                    ? "Already used by Show or hide panel"
-                    : "Already used by Capture selection"
-                return
-            }
-        }
-        hints[target] = switch target {
-        case .capture: actions.applyCaptureChord(chord)
-        case .panelToggle: actions.applyToggleChord(chord)
+    private func noteFailures(_ failed: Set<HotKeySlot>) {
+        for slot in failed {
+            hints[slot] = "Another app claimed this shortcut — it was turned off"
         }
     }
 
     private func refreshChords() {
-        captureChord = CaptureSettings.captureChord
-        toggleChord = PanelSettings.toggleChord
+        var current: [HotKeySlot: KeyChord] = [:]
+        for slot in HotKeySlot.allCases {
+            current[slot] = coordinator.chord(for: slot)
+        }
+        chords = current
     }
 }

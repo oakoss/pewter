@@ -3,21 +3,6 @@ import os
 import PewterCore
 import SwiftUI
 
-/// Callbacks into AppDelegate, the single writer of hotkey settings. The
-/// apply closures persist the chord, arm it, restore the previous chord on
-/// refusal, and return a user-facing error when the OS refuses.
-@MainActor
-struct SettingsActions {
-    var applyCaptureChord: (KeyChord?) -> String?
-    var applyToggleChord: (KeyChord?) -> String?
-    var applyTapModifier: () -> Void
-    /// Disarm/re-arm all capture triggers around recording — pressing the
-    /// currently assigned chord must record, not fire. Resume reports
-    /// per-target arming success so refusals render as recorder hints.
-    var suspendHotKeys: () -> Void
-    var resumeHotKeys: () -> (captureOK: Bool, toggleOK: Bool)
-}
-
 /// A normal activating titled window, on the onboarding pattern. The
 /// SwiftUI Settings scene is deliberately not used: for LSUIElement apps
 /// it needs activation-policy flipping hacks and is broken on macOS 26.
@@ -32,12 +17,12 @@ final class SettingsWindowController {
 
     private var window: NSWindow?
     private var observers: [NSObjectProtocol] = []
-    private let actions: SettingsActions
+    private let coordinator: HotKeyCoordinating
     private let recorder: KeyRecorderModel
 
-    init(actions: SettingsActions) {
-        self.actions = actions
-        recorder = KeyRecorderModel(actions: actions)
+    init(coordinator: HotKeyCoordinating) {
+        self.coordinator = coordinator
+        recorder = KeyRecorderModel(coordinator: coordinator)
     }
 
     isolated deinit {
@@ -51,7 +36,7 @@ final class SettingsWindowController {
         // Rebuilt on every show: view state initializers read the stored
         // settings, which launch-time arming can revert behind a kept view.
         recorder.refresh()
-        let hosting = NSHostingView(rootView: SettingsView(recorder: recorder, actions: actions))
+        let hosting = NSHostingView(rootView: SettingsView(recorder: recorder, coordinator: coordinator))
         // Fixed-size window, scrolling grouped Form — same pattern as
         // PanelController. Content-driven window sizing (preferredContentSize
         // observed) feeds the Form's scroll-view layout back into the window
@@ -111,7 +96,7 @@ final class SettingsWindowController {
 
 private struct SettingsView: View {
     let recorder: KeyRecorderModel
-    let actions: SettingsActions
+    let coordinator: HotKeyCoordinating
 
     @State private var tapModifier = CaptureSettings.tapModifier
     @State private var listStyle = PanelSettings.listCopyStyle
@@ -123,23 +108,22 @@ private struct SettingsView: View {
             }
 
             Section("Shortcuts") {
-                LabeledContent {
-                    KeyRecorderView(target: .capture, model: recorder)
-                } label: {
-                    Text("Capture selection")
-                    Text("Works even where the double-tap can't — no Accessibility needed")
-                }
-
-                LabeledContent {
-                    KeyRecorderView(target: .panelToggle, model: recorder)
-                } label: {
-                    Text("Show or hide panel")
-                    Text("Summons the panel from any app")
+                // Rows come from the slot enum so a new hotkey is one
+                // case there, not another hand-copied row — and the
+                // recorder's "Already used by …" hint can't drift from
+                // the row title.
+                ForEach(HotKeySlot.allCases, id: \.self) { slot in
+                    LabeledContent {
+                        KeyRecorderView(slot: slot, model: recorder)
+                    } label: {
+                        Text(slot.title)
+                        Text(slot.subtitle)
+                    }
                 }
 
                 Picker(selection: $tapModifier) {
                     ForEach(CaptureSettings.TapModifier.allCases, id: \.self) {
-                        Text($0.menuTitle).tag($0)
+                        Text($0.title).tag($0)
                     }
                 } label: {
                     Text("Capture gesture")
@@ -147,14 +131,17 @@ private struct SettingsView: View {
                 }
                 .onChange(of: tapModifier) {
                     CaptureSettings.tapModifier = tapModifier
-                    actions.applyTapModifier()
+                    // The resync picks up the new modifier (and the panel's
+                    // empty-state hint); while a recording is active the
+                    // tap monitor stays paused.
+                    coordinator.syncTriggers()
                 }
             }
 
             Section("Copying") {
                 Picker("Copy as List style", selection: $listStyle) {
                     ForEach(ItemFormatter.ListStyle.allCases, id: \.self) {
-                        Text($0.menuTitle).tag($0)
+                        Text($0.title).tag($0)
                     }
                 }
                 .onChange(of: listStyle) {

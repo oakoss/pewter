@@ -28,28 +28,31 @@ struct KeyChordTests {
     }
 
     @Test func storeAndLoadRoundTrips() throws {
-        let defaults = try #require(UserDefaults(suiteName: "keychord-tests-\(UUID().uuidString)"))
-        let chord = KeyChord(keyCode: 49, modifiers: [.control, .shift])
+        try withTestDefaults { defaults in
+            let chord = KeyChord(keyCode: 49, modifiers: [.control, .shift])
 
-        KeyChord.store(chord, in: defaults, key: "chord")
-        #expect(KeyChord.load(from: defaults, key: "chord") == chord)
+            KeyChord.store(chord, in: defaults, key: "chord")
+            #expect(KeyChord.load(from: defaults, key: "chord") == chord)
 
-        KeyChord.store(nil, in: defaults, key: "chord")
-        #expect(KeyChord.load(from: defaults, key: "chord") == nil)
+            KeyChord.store(nil, in: defaults, key: "chord")
+            #expect(KeyChord.load(from: defaults, key: "chord") == nil)
+        }
     }
 
     @Test func loadToleratesGarbageData() throws {
-        let defaults = try #require(UserDefaults(suiteName: "keychord-tests-\(UUID().uuidString)"))
-        defaults.set(Data("not json".utf8), forKey: "chord")
-        #expect(KeyChord.load(from: defaults, key: "chord") == nil)
+        try withTestDefaults { defaults in
+            defaults.set(Data("not json".utf8), forKey: "chord")
+            #expect(KeyChord.load(from: defaults, key: "chord") == nil)
+        }
     }
 
     @Test func loadRejectsInvalidGlobalHotKeys() throws {
-        let defaults = try #require(UserDefaults(suiteName: "keychord-tests-\(UUID().uuidString)"))
-        // A decodable but shift-only chord must degrade to off, not arm a
-        // chord that shadows typing.
-        defaults.set(Data(#"{"keyCode":35,"modifiers":4}"#.utf8), forKey: "chord")
-        #expect(KeyChord.load(from: defaults, key: "chord") == nil)
+        try withTestDefaults { defaults in
+            // A decodable but shift-only chord must degrade to off, not arm
+            // a chord that shadows typing.
+            defaults.set(Data(#"{"keyCode":35,"modifiers":4}"#.utf8), forKey: "chord")
+            #expect(KeyChord.load(from: defaults, key: "chord") == nil)
+        }
     }
 
     @Test func persistedWireFormatIsPinned() throws {
@@ -81,9 +84,10 @@ struct KeyChordTests {
         #expect(!KeyChord(keyCode: 12, modifiers: [.command, .shift]).isSystemReserved)
         #expect(!KeyChord(keyCode: 8, modifiers: [.control, .command]).isSystemReserved)
 
-        let defaults = try #require(UserDefaults(suiteName: "keychord-tests-\(UUID().uuidString)"))
-        defaults.set(Data(#"{"keyCode":12,"modifiers":8}"#.utf8), forKey: "chord")
-        #expect(KeyChord.load(from: defaults, key: "chord") == nil)
+        try withTestDefaults { defaults in
+            defaults.set(Data(#"{"keyCode":12,"modifiers":8}"#.utf8), forKey: "chord")
+            #expect(KeyChord.load(from: defaults, key: "chord") == nil)
+        }
     }
 
     @Test func escapeAndKeypadKeysHaveNames() {
