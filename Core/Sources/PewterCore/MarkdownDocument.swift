@@ -100,8 +100,10 @@ public struct MarkdownDocument: Equatable, Sendable {
     /// above the first heading; non-nil headings are non-empty with
     /// surrounding spaces stripped. Items may be a filtered subset of what's
     /// actually under the heading in the document. The id comes from the
-    /// heading line, so it stays stable while sections above appear or
-    /// disappear.
+    /// heading line, so it stays stable while other sections appear or
+    /// disappear — with one exception: duplicate headings are told apart by
+    /// position, so removing or inserting an earlier duplicate shifts the
+    /// later ones' identity.
     public struct Section: Identifiable, Equatable, Sendable {
         public let id: UUID
         public let heading: String?
