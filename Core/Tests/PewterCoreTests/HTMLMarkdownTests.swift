@@ -185,6 +185,13 @@ struct HTMLMarkdownTests {
             == "- x\n\n```\ny\n```")
     }
 
+    @Test func strikethroughTagsMapToTildes() {
+        #expect(HTMLMarkdown.markdown(fromHTML: "<p><del>gone</del> kept</p>") == "~~gone~~ kept")
+        #expect(HTMLMarkdown.markdown(fromHTML: "<p><s>old</s></p>") == "~~old~~")
+        #expect(HTMLMarkdown.markdown(fromHTML: #"<span style="text-decoration: line-through">x</span>"#)
+            == "~~x~~")
+    }
+
     @Test func orderedStartClampsToOne() {
         #expect(HTMLMarkdown.markdown(fromHTML: #"<ol start="0"><li>a</li><li>b</li></ol>"#)
             == "1. a\n2. b")

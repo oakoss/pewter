@@ -110,12 +110,14 @@ enum AttributedTextBlocks {
             let font = attributes[.font] as? NSFont
             let traits = font.map { NSFontManager.shared.traits(of: $0) } ?? []
             let link = (attributes[.link] as? URL)?.absoluteString ?? attributes[.link] as? String
+            let struck = ((attributes[.strikethroughStyle] as? NSNumber)?.intValue ?? 0) != 0
 
             runs.append(RichTextRun(
                 text,
                 bold: traits.contains(.boldFontMask),
                 italic: traits.contains(.italicFontMask),
                 code: isMonospaced(font),
+                strikethrough: struck,
                 link: link
             ))
         }

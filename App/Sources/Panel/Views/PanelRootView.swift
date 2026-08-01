@@ -173,6 +173,7 @@ struct PanelRootView: View {
         .menuIndicator(.hidden)
         .buttonStyle(.plain)
         .fixedSize()
+        .pointingHandCursor()
         .accessibilityLabel("More actions")
     }
 
@@ -288,6 +289,7 @@ struct PanelRootView: View {
                 uiState.onRequestPermission?()
             }
             .controlSize(.small)
+            .pointingHandCursor()
         }
         .padding(10)
         .background(.orange.opacity(0.12))

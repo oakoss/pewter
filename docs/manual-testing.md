@@ -185,6 +185,8 @@ an AX answer delivers plain text that passes through untouched.
 ## Panel behavior
 
 - [ ] Status-item click toggles the panel
+- [ ] Drag the panel's edge as narrow/short as it will go → it stops at a
+      usable minimum (320×360) instead of clipping the list into a sliver
 - [ ] Ellipsis (…) button at the right of the search field renders bare
       (no bordered button background or chevron) and opens the launcher
       menu from the non-activating panel: Settings…, Reveal Notes File in
@@ -232,6 +234,53 @@ an AX answer delivers plain text that passes through untouched.
 - [ ] After that app has keyboard focus, click a row (not a text field) in
       the panel → Cmd+C copies from the panel again; the keystroke must not
       leak into the other app, and no status-item re-toggle is needed
+
+## Links and cursors
+
+- [ ] Capture rich text containing a link from a browser (or add a note
+      with `[text](https://example.com)`) → the link renders in link color
+      with an underline; the rest of the note stays plain
+- [ ] Hover the link → pointing-hand cursor; hover the surrounding note
+      text → default arrow
+- [ ] Click the link → opens in the default browser; the row does NOT
+      become selected and the panel stays non-activating
+- [ ] Click the note's plain text → selects the row (link untouched);
+      double-click plain text → enters edit mode showing the raw markdown
+- [ ] Press down on a link, drag off it, release → nothing opens
+      (drag-off cancels, matching button behavior)
+- [ ] Double-click a link → opens exactly once (no second tab, no edit
+      mode)
+- [ ] Click just past the end of a line that ends in a link → selects the
+      row, nothing opens
+- [ ] Hover a link → the row's hover copy button stays visible
+- [ ] Control-click a link → the Open Link / Copy Link menu appears and
+      nothing navigates
+- [ ] Hover a link, then the checkbox, then the copy button, then back to
+      the link in quick succession → cursor tracks pointing hand / arrow
+      correctly at each stop (sliding from a button directly onto a link
+      must not leave an arrow stuck over the link)
+- [ ] Right-click a link → Open Link / Copy Link menu (Copy Link puts the
+      URL on the clipboard); right-click on plain text → the row's normal
+      context menu (Copy, Edit, Delete…)
+- [ ] A done note with a link keeps strikethrough + secondary color on its
+      plain text; the link still opens
+- [ ] Bold/italic/inline-code markdown still renders styled in rows
+- [ ] Long notes still truncate at 6 lines; a link in the visible lines
+      still opens
+- [ ] A note that is entirely one link: select it with ↑/↓ and press
+      Enter → edit mode still reachable (its text offers no plain-text
+      click target)
+- [ ] Hand-edit the notes file to give a note a `file:///` or
+      `javascript:` destination → the label renders as plain text: no
+      link color, no pointing hand, click selects the row
+- [ ] Externally edit the notes file to change a link's text or URL while
+      the panel is open → the row re-renders and the click target and
+      pointing-hand region follow the new link
+- [ ] Pointing-hand cursor on hover over: row checkbox, hover copy button,
+      the ellipsis menu button, and the permission banner's Enable… button
+- [ ] Hover the copy button, then move the mouse straight off the row (the
+      button disappears) → cursor returns to the arrow, not stuck as a
+      pointing hand
 
 ## Sections
 

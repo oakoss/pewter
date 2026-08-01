@@ -68,6 +68,7 @@ enum HTMLMarkdown {
         var bold = false
         var italic = false
         var code = false
+        var strikethrough = false
         var link: String?
     }
 
@@ -78,6 +79,7 @@ enum HTMLMarkdown {
         var bold: Bool?
         var italic: Bool?
         var code: Bool?
+        var strikethrough: Bool?
         var link: String?
     }
 
@@ -109,6 +111,7 @@ enum HTMLMarkdown {
         private static let skippedContainers: Set<String> = ["style", "script", "head", "title"]
         private static let inlineTags: Set<String> = [
             "b", "strong", "i", "em", "code", "tt", "kbd", "samp", "a", "span", "font",
+            "s", "del", "strike",
         ]
         /// Tags that end the current block on open and close.
         private static let blockTags: Set<String> = [
@@ -160,7 +163,8 @@ enum HTMLMarkdown {
             guard !text.isEmpty else { return }
             if let last = runs.last,
                last.bold == style.bold, last.italic == style.italic,
-               last.code == style.code, last.link == style.link
+               last.code == style.code, last.strikethrough == style.strikethrough,
+               last.link == style.link
             {
                 runs[runs.count - 1].text += text
             } else {
@@ -169,6 +173,7 @@ enum HTMLMarkdown {
                     bold: style.bold,
                     italic: style.italic,
                     code: style.code,
+                    strikethrough: style.strikethrough,
                     link: style.link
                 ))
             }
@@ -342,6 +347,9 @@ enum HTMLMarkdown {
             if let code = effects.code {
                 style.code = code
             }
+            if let strikethrough = effects.strikethrough {
+                style.strikethrough = strikethrough
+            }
             if let link = effects.link {
                 style.link = link
             }
@@ -445,6 +453,8 @@ enum HTMLMarkdown {
                 effects.italic = true
             case "code", "tt", "kbd", "samp":
                 effects.code = true
+            case "s", "del", "strike":
+                effects.strikethrough = true
             case "a":
                 effects.link = HTMLLexer.attribute("href", in: attributes)
             default:
@@ -473,6 +483,13 @@ enum HTMLMarkdown {
                RichTextFont.isMonospacedFamily(family)
             {
                 effects.code = true
+            }
+            if let decoration = HTMLLexer.styleValue("text-decoration", in: styleAttribute) {
+                if decoration.contains("line-through") {
+                    effects.strikethrough = true
+                } else if decoration == "none" {
+                    effects.strikethrough = false
+                }
             }
             return effects
         }

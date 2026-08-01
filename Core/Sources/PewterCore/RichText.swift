@@ -10,6 +10,7 @@ public struct RichTextRun: Equatable, Sendable {
     /// When set, `bold` and `italic` are ignored at emission — code
     /// formatting wins over emphasis.
     public var code: Bool
+    public var strikethrough: Bool
     public var link: String?
 
     public init(
@@ -17,12 +18,14 @@ public struct RichTextRun: Equatable, Sendable {
         bold: Bool = false,
         italic: Bool = false,
         code: Bool = false,
+        strikethrough: Bool = false,
         link: String? = nil
     ) {
         self.text = text
         self.bold = bold
         self.italic = italic
         self.code = code
+        self.strikethrough = strikethrough
         // An empty href means "no link"; one representation spares every
         // consumer the guard.
         self.link = link.flatMap { $0.isEmpty ? nil : $0 }
@@ -88,7 +91,7 @@ public extension [RichTextBlock] {
     var requiresMarkdown: Bool {
         contains { block in
             guard case let .paragraph(runs) = block else { return true }
-            return runs.contains { $0.bold || $0.italic || $0.code || $0.link != nil }
+            return runs.contains { $0.bold || $0.italic || $0.code || $0.strikethrough || $0.link != nil }
         }
     }
 }

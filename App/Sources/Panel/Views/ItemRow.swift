@@ -33,7 +33,7 @@ struct ItemRow: View {
             checkbox
             content
             Spacer(minLength: 0)
-            if isHovering || showsCopied, !isEditing {
+            if !isEditing {
                 copyButton
             }
         }
@@ -108,9 +108,19 @@ struct ItemRow: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
+        .pointingHandCursor()
+        // Faded rather than removed when idle: inserting the button on
+        // hover narrows the text column, re-wraps the row, and jiggles
+        // every row below it.
+        .opacity(showsCopyButton ? 1 : 0)
+        .allowsHitTesting(showsCopyButton)
+        .accessibilityHidden(!showsCopyButton)
         .accessibilityLabel("Copy")
         .help("Copy — ⌥ click to also mark as done")
-        .transition(.opacity)
+    }
+
+    private var showsCopyButton: Bool {
+        isHovering || showsCopied
     }
 
     private var checkbox: some View {
@@ -121,6 +131,7 @@ struct ItemRow: View {
                 .contentTransition(.symbolEffect(.replace))
         }
         .buttonStyle(.plain)
+        .pointingHandCursor()
         .accessibilityLabel(item.done ? "Mark as not done" : "Mark as done")
     }
 
@@ -137,21 +148,59 @@ struct ItemRow: View {
                     return .handled
                 }
         } else {
-            Text(markdownText)
-                .strikethrough(item.done)
-                .foregroundStyle(item.done ? .secondary : .primary)
-                .lineLimit(6)
-                .fixedSize(horizontal: false, vertical: true)
+            let rendered = displayText
+            LinkText(attributed: rendered)
+                // A representable exposes no text baseline, so the row's
+                // firstTextBaseline alignment would fall back to an edge and
+                // open a gap above the text; hand it the first line's real
+                // baseline.
+                .alignmentGuide(.firstTextBaseline) { _ in
+                    NSFont.preferredFont(forTextStyle: .body).ascender
+                }
+                // Without this, VoiceOver announces the row's buttons but not
+                // the note; it must read the rendered string, not raw markdown.
+                .accessibilityLabel(rendered.string)
                 .help(Text(item.createdAt, format: .dateTime))
         }
     }
 
-    private var markdownText: AttributedString {
-        (try? AttributedString(
-            markdown: item.text,
-            options: AttributedString.MarkdownParsingOptions(
-                interpretedSyntax: .inlineOnlyPreservingWhitespace
-            )
-        )) ?? AttributedString(item.text)
+    /// Core's parse (`InlineMarkdown`) resolved to AppKit attributes —
+    /// the link hit-testing lives in an `NSTextView`, which reads font
+    /// traits, not presentation intents.
+    private var displayText: NSAttributedString {
+        let base = NSFont.preferredFont(forTextStyle: .body)
+        let result = NSMutableAttributedString()
+        for run in InlineMarkdown.runs(from: item.text) {
+            var attributes: [NSAttributedString.Key: Any] = [
+                .foregroundColor: item.done ? NSColor.secondaryLabelColor : NSColor.labelColor,
+            ]
+            if item.done || run.strikethrough {
+                attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            }
+
+            var font = base
+            if run.code {
+                font = .monospacedSystemFont(ofSize: base.pointSize, weight: .regular)
+            }
+            var traits: NSFontTraitMask = []
+            if run.bold {
+                traits.insert(.boldFontMask)
+            }
+            if run.italic {
+                traits.insert(.italicFontMask)
+            }
+            if !traits.isEmpty {
+                font = NSFontManager.shared.convert(font, toHaveTrait: traits)
+            }
+            attributes[.font] = font
+
+            if let link = run.link.flatMap(URL.init(string:)) {
+                attributes[.link] = link
+                attributes[.foregroundColor] = NSColor.linkColor
+                attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            }
+            result.append(NSAttributedString(string: run.text, attributes: attributes))
+        }
+        return result
     }
 }
