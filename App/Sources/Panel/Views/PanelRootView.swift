@@ -142,8 +142,8 @@ struct PanelRootView: View {
         .padding(10)
     }
 
-    /// Mirrors the status item's launcher menu — the status item's
-    /// right-click is the only other mouse path to these.
+    /// Same launcher actions as the status item's menu — its right-click
+    /// is the only other mouse path to these.
     private var panelMenu: some View {
         Menu {
             Button("Settings…") { uiState.onOpenSettings?() }
