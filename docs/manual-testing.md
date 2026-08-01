@@ -131,6 +131,33 @@ or the status item / panel / window layer.
 - [ ] Capture, delete the note, capture the same selection within 2 s →
       a fresh note appears (deleting opts out of the duplicate guard)
 
+## Rich-text capture (pasteboard tier only)
+
+Conversion happens on the pasteboard fallback tier — an app that answers
+via the AX tier delivers plain text, which passes through untouched.
+
+- [ ] Copy web content with bold, a link, and a bullet list (Mail, a saved
+      web page) → the captured note holds `**bold**`, `[text](url)`, and
+      `-` list lines
+- [ ] Copy code from VS Code → captured as exact plain text with
+      indentation intact (its clipboard HTML carries styling but no
+      semantic structure, so the converter steps aside for the plain
+      flavor)
+- [ ] Copy code from a web page's `<pre>` block → captured as a fenced
+      code block
+- [ ] Plain-text source (terminal shell output) → captured byte-identical:
+      no markers appear, `*stars*` and `_underscores_` in the text stay as
+      typed
+- [ ] TextEdit rich-text document (RTF flavor, no HTML): bold/italic/lists
+      convert; a fully monospaced paragraph becomes a fenced line, and a
+      code fragment inside a sentence stays `inline code`
+- [ ] An indented (⌘]) TextEdit paragraph captures as plain text — no `>`
+      quote marker (RTF indentation is layout; quotes convert only from
+      HTML's explicit blockquote)
+- [ ] A huge rich selection → conversion happens first, then the length cap
+      (note ends with … at 20k)
+- [ ] After a rich capture the previous clipboard contents still come back
+
 ## Status item menu
 
 - [ ] Right-click the status item → menu opens just below the menu bar like
