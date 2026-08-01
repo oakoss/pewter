@@ -1,5 +1,5 @@
 import AppKit
-import Carbon.HIToolbox
+import PewterCore
 
 /// User-configurable capture triggers, persisted in UserDefaults. The
 /// double-tap modifier is configurable because tools like Karabiner's
@@ -37,30 +37,8 @@ enum CaptureSettings {
         }
     }
 
-    enum ChordHotKey: String, CaseIterable {
-        case off
-        case controlShiftC
-        case controlOptionC
-
-        var menuTitle: String {
-            switch self {
-            case .off: "Off"
-            case .controlShiftC: "⌃⇧C"
-            case .controlOptionC: "⌃⌥C"
-            }
-        }
-
-        var chord: HotKeyCenter.Chord? {
-            switch self {
-            case .off: nil
-            case .controlShiftC: .init(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(controlKey | shiftKey))
-            case .controlOptionC: .init(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(controlKey | optionKey))
-            }
-        }
-    }
-
     private static let tapModifierKey = "captureTapModifier"
-    private static let chordHotKeyKey = "captureChordHotKey"
+    private static let captureChordKey = "captureHotKeyChord"
 
     static var tapModifier: TapModifier {
         get {
@@ -72,13 +50,9 @@ enum CaptureSettings {
         }
     }
 
-    static var chordHotKey: ChordHotKey {
-        get {
-            UserDefaults.standard.string(forKey: chordHotKeyKey)
-                .flatMap(ChordHotKey.init(rawValue:)) ?? .off
-        }
-        set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: chordHotKeyKey)
-        }
+    /// nil is off. Recorded free-form in the settings window.
+    static var captureChord: KeyChord? {
+        get { KeyChord.load(from: .standard, key: captureChordKey) }
+        set { KeyChord.store(newValue, in: .standard, key: captureChordKey) }
     }
 }
