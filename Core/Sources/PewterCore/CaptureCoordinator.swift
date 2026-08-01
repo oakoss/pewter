@@ -71,14 +71,17 @@ public final class CaptureCoordinator {
         // code block would leave the fence open and mis-render everything
         // after it in an external editor. Close it, inside the budget.
         if let fence = openFenceDelimiter(in: cut) {
-            let over = cut.count - (captureLengthCap - fence.count - 2)
-            if over > 0 {
-                cut.removeLast(over)
+            // Clamped targets, not subtraction: a pathological opener can be
+            // longer than the whole budget, and an unclamped removeLast
+            // would trap. An empty cut is the degenerate answer there.
+            let target = max(0, captureLengthCap - fence.count - 2)
+            if cut.count > target {
+                cut.removeLast(cut.count - target)
             }
             // The close is appended after the byte trim above spent the
             // budget; reserve its bytes too.
-            let tail = fence.utf8.count + 1 + "…".utf8.count
-            while cut.utf8.count > captureByteCap - tail {
+            let byteTarget = max(0, captureByteCap - fence.utf8.count - 1 - "…".utf8.count)
+            while !cut.isEmpty, cut.utf8.count > byteTarget {
                 cut.removeLast()
             }
             if let fence = openFenceDelimiter(in: cut) {

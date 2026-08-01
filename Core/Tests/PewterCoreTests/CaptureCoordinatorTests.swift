@@ -505,6 +505,17 @@ struct CaptureCoordinatorTests {
         #expect(stored.hasSuffix("…\n````"))
     }
 
+    @Test func hugeBacktickOpenerDoesNotTrapTheCap() {
+        // An opener longer than the whole budget can't be closed within it;
+        // the degenerate ellipsis-only note beats a crash.
+        let reader = FakeReader(result: String(repeating: "`", count: 30000) + "\ncode")
+        let (coordinator, store, _) = makeCoordinator(reader: reader, capture: FakeCapture(result: .failed))
+
+        coordinator.captureSelection()
+
+        #expect(store.items.map(\.text) == ["…"])
+    }
+
     @Test func indentedFenceCloserIsRecognizedNotRepaired() {
         // The fence is already closed (an up-to-3-space indented closer is
         // legal); the repair must not append a spurious opener.
