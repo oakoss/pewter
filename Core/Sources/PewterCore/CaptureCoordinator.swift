@@ -116,6 +116,7 @@ public final class CaptureCoordinator {
     private let selectionReader: any SelectionReading
     private let pasteboardCapture: any PasteboardCapturing
     private let isTrusted: () -> Bool
+    private let prefersRichSource: () -> Bool
     private let now: () -> Date
     private var captureInFlight = false
     private var lastCapture: (itemID: UUID, at: Date)?
@@ -125,12 +126,14 @@ public final class CaptureCoordinator {
         selectionReader: any SelectionReading,
         pasteboardCapture: any PasteboardCapturing,
         isTrusted: @escaping () -> Bool,
+        prefersRichSource: @escaping () -> Bool = { false },
         now: @escaping () -> Date = { Date() }
     ) {
         self.store = store
         self.selectionReader = selectionReader
         self.pasteboardCapture = pasteboardCapture
         self.isTrusted = isTrusted
+        self.prefersRichSource = prefersRichSource
         self.now = now
     }
 
@@ -141,23 +144,46 @@ public final class CaptureCoordinator {
         }
         guard !captureInFlight else { return }
 
+        // Rich sources (browsers) invert the tiers: their pasteboard flavor
+        // keeps formatting the AX read flattens — and their AX selection
+        // mashes block boundaries — so the AX read demotes to a rescue.
+        if prefersRichSource() {
+            runPasteboardTier(rescuingWithSelectionReader: true)
+            return
+        }
+
         if let text = selectionReader.readSelection() {
             finish(with: text)
             return
         }
+        runPasteboardTier(rescuingWithSelectionReader: false)
+    }
 
+    private func runPasteboardTier(rescuingWithSelectionReader rescue: Bool) {
         captureInFlight = true
         Task { [weak self] in
-            let result = await self?.pasteboardCapture.capture()
+            // Holding only the capture dependency across the await keeps a
+            // deallocated coordinator from being kept alive by an in-flight
+            // capture, and the result non-optional.
+            guard let capture = self?.pasteboardCapture else { return }
+            let result = await capture.capture()
             guard let self else { return }
             captureInFlight = false
             switch result {
             case let .copied(text):
                 finish(with: text)
-            case .nothingSelected, nil:
-                onOutcome?(.nothingSelected)
+            case .nothingSelected:
+                if rescue, let text = selectionReader.readSelection() {
+                    finish(with: text)
+                } else {
+                    onOutcome?(.nothingSelected)
+                }
             case .failed:
-                onOutcome?(.captureFailed)
+                if rescue, let text = selectionReader.readSelection() {
+                    finish(with: text)
+                } else {
+                    onOutcome?(.captureFailed)
+                }
             }
         }
     }

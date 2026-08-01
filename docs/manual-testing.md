@@ -110,8 +110,11 @@ or the status item / panel / window layer.
 
 ## Selection reading
 
-- [ ] Safari, TextEdit, Notes: capture works and the clipboard is **unchanged**
+- [ ] TextEdit, Notes: capture works and the clipboard is **unchanged**
       afterwards (AX path — copy something first, capture, paste to verify)
+- [ ] Safari or Chrome: capture works and the previous clipboard contents
+      come back (browsers route to the pasteboard tier so formatting
+      survives; the AX read is only their rescue)
 - [ ] VS Code / Slack / a terminal: capture works and the previous clipboard
       contents come back (fallback path)
 - [ ] Multi-line selection captures with line breaks intact
@@ -131,14 +134,18 @@ or the status item / panel / window layer.
 - [ ] Capture, delete the note, capture the same selection within 2 s →
       a fresh note appears (deleting opts out of the duplicate guard)
 
-## Rich-text capture (pasteboard tier only)
+## Rich-text capture (pasteboard tier)
 
-Conversion happens on the pasteboard fallback tier — an app that answers
-via the AX tier delivers plain text, which passes through untouched.
+Conversion happens on the pasteboard tier. Browsers prefer that tier so
+formatting survives; other apps reach it only when the AX read fails, and
+an AX answer delivers plain text that passes through untouched.
 
-- [ ] Copy web content with bold, a link, and a bullet list (Mail, a saved
-      web page) → the captured note holds `**bold**`, `[text](url)`, and
-      `-` list lines
+- [ ] Select web content with bold, a link, and a bullet list in Chrome or
+      Safari, double-tap → the captured note holds `**bold**`,
+      `[text](url)`, and `-` list lines, with block boundaries on their own
+      lines (no mashed `sentence.Next` joins)
+- [ ] Same capture in a browser with something on the clipboard → the
+      previous clipboard contents come back afterwards
 - [ ] Copy code from VS Code → captured as exact plain text with
       indentation intact (its clipboard HTML carries styling but no
       semantic structure, so the converter steps aside for the plain

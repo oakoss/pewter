@@ -47,6 +47,7 @@ struct CaptureCoordinatorTests {
         reader: FakeReader,
         capture: FakeCapture,
         trusted: Bool = true,
+        prefersRichSource: Bool = false,
         now: @escaping () -> Date = { Date() }
     ) -> (CaptureCoordinator, ListStore, Outcomes) {
         let store = ListStore()
@@ -55,6 +56,7 @@ struct CaptureCoordinatorTests {
             selectionReader: reader,
             pasteboardCapture: capture,
             isTrusted: { trusted },
+            prefersRichSource: { prefersRichSource },
             now: now
         )
         let outcomes = Outcomes()
@@ -137,6 +139,9 @@ struct CaptureCoordinatorTests {
         try await waitUntil { !outcomes.all.isEmpty }
 
         #expect(outcomes.all == [.captureFailed])
+        // Exactly one AX read: the default path must not rescue — a second
+        // read after the pasteboard tier would be a redundant window walk.
+        #expect(reader.callCount == 1)
     }
 
     @Test func duplicateCaptureInsideTheWindowResurfacesTheExistingNote() throws {
@@ -362,6 +367,9 @@ struct CaptureCoordinatorTests {
         capture.resumeGate()
         try await waitUntil { !outcomes.all.isEmpty }
 
+        // Post-await: a second Task the guard failed to drop would have run
+        // by now — the synchronous check above can't see an enqueued one.
+        #expect(capture.callCount == 1)
         #expect(store.items.count == 1)
         #expect(outcomes.all.count == 1)
 
@@ -374,6 +382,127 @@ struct CaptureCoordinatorTests {
         coordinator.captureSelection()
         try await waitUntil { outcomes.all.count == 2 }
         #expect(store.items.count == 2)
+    }
+
+    @Test func untrustedRichSourceReportsNotPermittedWithoutFiringTiers() {
+        let reader = FakeReader(result: "text")
+        let capture = FakeCapture(result: .copied("text"))
+        let (coordinator, store, outcomes) = makeCoordinator(
+            reader: reader, capture: capture, trusted: false, prefersRichSource: true
+        )
+
+        coordinator.captureSelection()
+
+        #expect(outcomes.all == [.notPermitted])
+        #expect(capture.callCount == 0)
+        #expect(reader.callCount == 0)
+        #expect(store.items.isEmpty)
+    }
+
+    @Test func secondRichSourceCaptureWhileInFlightIsDropped() async throws {
+        let reader = FakeReader(result: nil)
+        let capture = FakeCapture(result: .copied("rich"))
+        capture.shouldSuspend = true
+        let (coordinator, store, outcomes) = makeCoordinator(
+            reader: reader, capture: capture, prefersRichSource: true
+        )
+
+        coordinator.captureSelection()
+        try await waitUntil { capture.callCount == 1 }
+        coordinator.captureSelection()
+        #expect(capture.callCount == 1)
+
+        capture.resumeGate()
+        try await waitUntil { !outcomes.all.isEmpty }
+        // Post-await: a second Task the guard failed to drop would have run
+        // by now — the synchronous check above can't see an enqueued one.
+        #expect(capture.callCount == 1)
+        #expect(store.items.count == 1)
+    }
+
+    @Test func richSourcePrefersThePasteboardOverAX() async throws {
+        let reader = FakeReader(result: "plain from AX")
+        let capture = FakeCapture(result: .copied("**rich** from pasteboard"))
+        let (coordinator, store, outcomes) = makeCoordinator(
+            reader: reader, capture: capture, prefersRichSource: true
+        )
+
+        coordinator.captureSelection()
+        try await waitUntil { !outcomes.all.isEmpty }
+
+        #expect(store.items.map(\.text) == ["**rich** from pasteboard"])
+        #expect(reader.callCount == 0)
+    }
+
+    @Test func richSourceRescuesWithAXWhenPasteboardIsEmpty() async throws {
+        let reader = FakeReader(result: "ax rescue")
+        let capture = FakeCapture(result: .nothingSelected)
+        let (coordinator, store, outcomes) = makeCoordinator(
+            reader: reader, capture: capture, prefersRichSource: true
+        )
+
+        coordinator.captureSelection()
+        try await waitUntil { !outcomes.all.isEmpty }
+
+        #expect(store.items.map(\.text) == ["ax rescue"])
+    }
+
+    @Test func richSourceRescuesWithAXOnCaptureFailure() async throws {
+        let reader = FakeReader(result: "ax rescue")
+        let capture = FakeCapture(result: .failed)
+        let (coordinator, store, outcomes) = makeCoordinator(
+            reader: reader, capture: capture, prefersRichSource: true
+        )
+
+        coordinator.captureSelection()
+        try await waitUntil { !outcomes.all.isEmpty }
+
+        #expect(store.items.map(\.text) == ["ax rescue"])
+        #expect(outcomes.all.count == 1)
+    }
+
+    @Test func richSourceWithNothingAnywhereReportsNothingSelected() async throws {
+        let reader = FakeReader(result: nil)
+        let capture = FakeCapture(result: .nothingSelected)
+        let (coordinator, store, outcomes) = makeCoordinator(
+            reader: reader, capture: capture, prefersRichSource: true
+        )
+
+        coordinator.captureSelection()
+        try await waitUntil { !outcomes.all.isEmpty }
+
+        #expect(outcomes.all == [.nothingSelected])
+        #expect(store.items.isEmpty)
+    }
+
+    @Test func richSourceFailureWithNoSelectionReportsCaptureFailed() async throws {
+        let reader = FakeReader(result: nil)
+        let capture = FakeCapture(result: .failed)
+        let (coordinator, _, outcomes) = makeCoordinator(
+            reader: reader, capture: capture, prefersRichSource: true
+        )
+
+        coordinator.captureSelection()
+        try await waitUntil { !outcomes.all.isEmpty }
+
+        #expect(outcomes.all == [.captureFailed])
+    }
+
+    @Test func richSourceDuplicateCapturesStillCollapse() async throws {
+        var clock = Date(timeIntervalSince1970: 1_753_000_000)
+        let reader = FakeReader(result: nil)
+        let capture = FakeCapture(result: .copied("same rich text"))
+        let (coordinator, store, outcomes) = makeCoordinator(
+            reader: reader, capture: capture, prefersRichSource: true, now: { clock }
+        )
+
+        coordinator.captureSelection()
+        try await waitUntil { outcomes.all.count == 1 }
+        clock += 1
+        coordinator.captureSelection()
+        try await waitUntil { outcomes.all.count == 2 }
+
+        #expect(store.items.count == 1)
     }
 
     @Test func captureAtTheCapPassesThroughUntouched() {
