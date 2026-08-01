@@ -13,9 +13,12 @@ public protocol PasteboardCaptureSurface {
 
     var changeCount: Int { get }
     var frontmostAppPid: pid_t? { get }
-    /// Clipboard content, best flavor first: Markdown converted from a rich
-    /// flavor when one is present, plain text otherwise.
-    func capturedText() -> String?
+    /// The clipboard's capturable flavors, read raw — `RichCapture` owns
+    /// which one becomes the note.
+    func pasteboardFlavors() -> PasteboardFlavors
+    /// Decodes an RTF flavor into blocks (AppKit's importer in the app);
+    /// nil when the data doesn't import.
+    func rtfBlocks(_ data: Data) -> [RichTextBlock]?
     /// Saves restorable clipboard contents; nil when nothing restorable
     /// was present.
     func saveClipboard() -> Snapshot?
@@ -92,7 +95,7 @@ public enum PasteboardCaptureRunner {
         }
 
         if let landedCount {
-            let result = PasteboardCapturePolicy.capturedResult(from: surface.capturedText())
+            let result = PasteboardCapturePolicy.capturedResult(from: capturedText(on: surface))
             restoreIfSafe(on: surface, snapshot: snapshot, expectedChangeCount: landedCount)
             return result
         }
@@ -103,7 +106,7 @@ public enum PasteboardCaptureRunner {
         // is today. Recent activity plus a dead copy means the clipboard
         // already holds this selection — use it and leave it there.
         if surface.recentClipboardChange() {
-            let result = PasteboardCapturePolicy.capturedResult(from: surface.capturedText())
+            let result = PasteboardCapturePolicy.capturedResult(from: capturedText(on: surface))
             if case .copied = result {
                 logger.info("using recently auto-copied clipboard content")
             } else {
@@ -114,6 +117,11 @@ public enum PasteboardCaptureRunner {
 
         logger.debug("no pasteboard change within capture window")
         return .nothingSelected
+    }
+
+    @MainActor
+    private static func capturedText(on surface: some PasteboardCaptureSurface) -> String? {
+        RichCapture.text(from: surface.pasteboardFlavors(), rtfBlocks: { surface.rtfBlocks($0) })
     }
 
     @MainActor
