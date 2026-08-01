@@ -61,7 +61,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let pasteboardCapture = PasteboardCapture(
             recentClipboardChange: { [weak clipboardTracker] in
-                clipboardTracker?.changedRecently(within: 3) ?? false
+                // Poll the tracker first — it advances its change baseline —
+                // then deny the assist for browsers: it exists for
+                // copy-on-select TUIs, and honoring it in a browser would
+                // store stale clipboard content instead of falling through
+                // to the AX rescue.
+                let recent = clipboardTracker?.changedRecently(within: 3) ?? false
+                return recent && !RichSourceApps.frontmostIsRichSource()
             },
             beginOwnWrites: { [weak clipboardTracker] in
                 clipboardTracker?.beginOwnWrites()
@@ -75,7 +81,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             store: store,
             selectionReader: SelectionReader(),
             pasteboardCapture: pasteboardCapture,
-            isTrusted: { AXIsProcessTrusted() }
+            isTrusted: { AXIsProcessTrusted() },
+            prefersRichSource: { RichSourceApps.frontmostIsRichSource() }
         )
         captureCoordinator = coordinator
         coordinator.onOutcome = { [weak self] outcome in
