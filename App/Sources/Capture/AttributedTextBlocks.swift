@@ -126,18 +126,21 @@ enum AttributedTextBlocks {
 
     /// The importer bakes the visible list marker into the text itself as
     /// "\t<marker>\t<content>"; skip past it so it isn't duplicated
-    /// alongside the Markdown marker the writer emits. All offsets stay in
-    /// UTF-16 units — mixing in Character distances would misalign the
-    /// range for non-BMP markers.
+    /// alongside the Markdown marker the writer emits. The first tab must
+    /// sit at the very start — that's the importer's shape, and scanning
+    /// further would risk reading a content tab as a marker delimiter. The
+    /// window is wide enough for multi-digit, roman, and named markers.
+    /// All offsets stay in UTF-16 units — mixing in Character distances
+    /// would misalign the range for non-BMP markers.
     private static func rangeAfterListMarker(in paragraphRange: NSRange, string: NSString) -> NSRange {
-        let searchRange = NSRange(location: paragraphRange.location, length: min(paragraphRange.length, 8))
-        let firstTab = string.range(of: "\t", options: [], range: searchRange)
-        guard firstTab.location != NSNotFound else { return paragraphRange }
-        let afterFirst = NSRange(
-            location: firstTab.location + 1,
-            length: searchRange.location + searchRange.length - firstTab.location - 1
+        guard paragraphRange.length > 1,
+              string.character(at: paragraphRange.location) == 0x09
+        else { return paragraphRange }
+        let searchRange = NSRange(
+            location: paragraphRange.location + 1,
+            length: min(paragraphRange.length - 1, 31)
         )
-        let secondTab = string.range(of: "\t", options: [], range: afterFirst)
+        let secondTab = string.range(of: "\t", options: [], range: searchRange)
         guard secondTab.location != NSNotFound else { return paragraphRange }
         let contentStart = secondTab.location + 1
         return NSRange(

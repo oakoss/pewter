@@ -49,6 +49,13 @@ struct MarkdownWriterTests {
         #expect(markdown == "a **bold** b")
     }
 
+    @Test func mixedTrailingWhitespaceKeepsItsOrder() {
+        let markdown = MarkdownWriter.markdown(from: [
+            .paragraph([RichTextRun("a \t", bold: true), RichTextRun("b")]),
+        ])
+        #expect(markdown == "**a** \tb")
+    }
+
     @Test func whitespaceOnlyRunPassesThrough() {
         let markdown = MarkdownWriter.markdown(from: [
             .paragraph([

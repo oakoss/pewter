@@ -72,10 +72,12 @@ public enum MarkdownWriter {
             guard !run.text.isEmpty else { continue }
 
             // Whitespace stays outside the markers — wrapping it produces
-            // malformed Markdown like "word **".
+            // malformed Markdown like "word **". The trailing slice is
+            // taken as a suffix so mixed whitespace keeps its order.
             let leading = run.text.prefix { $0 == " " || $0 == "\t" }
-            let trailing = run.text.reversed().prefix { $0 == " " || $0 == "\t" }
-            let core = String(run.text.dropFirst(leading.count).dropLast(trailing.count))
+            let trailingCount = run.text.reversed().prefix { $0 == " " || $0 == "\t" }.count
+            let trailing = run.text.suffix(trailingCount)
+            let core = String(run.text.dropFirst(leading.count).dropLast(trailingCount))
             guard !core.isEmpty, !core.allSatisfy(\.isWhitespace) else {
                 result += run.text
                 continue
