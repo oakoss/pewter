@@ -42,6 +42,15 @@ targets:
         CFBundleDisplayName: Pewter
         LSMinimumSystemVersion: "14.0"
         NSHumanReadableCopyright: "MIT License — oakoss"
+        # Persist debug-level entries for our subsystem: OSLogStore (Copy
+        # Diagnostics) only returns persisted entries, and the capture tier
+        # decisions log at .debug. Volume is a few lines per capture.
+        OSLogPreferences:
+          com.oakoss.Pewter:
+            DEFAULT-OPTIONS:
+              Level:
+                Enable: Debug
+                Persist: Debug
 
 schemes:
   Pewter:

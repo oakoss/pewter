@@ -1,4 +1,6 @@
 import AppKit
+import os
+import PewterCore
 
 @MainActor
 enum Pasteboard {
@@ -7,11 +9,19 @@ enum Pasteboard {
     static var beginOwnWrite: (() -> Void)?
     static var endOwnWrite: (() -> Void)?
 
-    static func write(_ text: String) {
+    /// False when the write failed — and `clearContents` has already run,
+    /// so the clipboard is empty, not stale. Callers claiming "copied" in
+    /// their feedback must check.
+    @discardableResult
+    static func write(_ text: String) -> Bool {
         beginOwnWrite?()
+        defer { endOwnWrite?() }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
-        endOwnWrite?()
+        let wrote = pasteboard.setString(text, forType: .string)
+        if !wrote {
+            Logger.panel.error("pasteboard write failed")
+        }
+        return wrote
     }
 }

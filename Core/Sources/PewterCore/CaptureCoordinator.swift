@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 public protocol SelectionReading {
     @MainActor func readSelection() -> String?
@@ -29,6 +30,11 @@ public final class CaptureCoordinator {
     }
 
     public var onOutcome: ((Outcome) -> Void)?
+
+    /// Every capture leaves a breadcrumb — counts and tier names only,
+    /// never content. Without one, a diagnostics report can't distinguish
+    /// "capture ran cleanly" from "the gesture never arrived".
+    private static let logger = Logger.capture
 
     /// Consecutive captures of the same text within this window are
     /// accidental duplicates (a double-tap firing twice on one selection).
@@ -120,10 +126,14 @@ public final class CaptureCoordinator {
 
     public func captureSelection() {
         guard isTrusted() else {
+            Self.logger.info("capture blocked: accessibility not granted")
             onOutcome?(.notPermitted)
             return
         }
-        guard !captureInFlight else { return }
+        guard !captureInFlight else {
+            Self.logger.debug("capture ignored: one already in flight")
+            return
+        }
 
         // Rich sources (browsers) invert the tiers: their pasteboard flavor
         // keeps formatting the AX read flattens — and their AX selection
@@ -134,7 +144,7 @@ public final class CaptureCoordinator {
         }
 
         if let text = selectionReader.readSelection() {
-            finish(with: text)
+            finish(with: text, via: "selection")
             return
         }
         runPasteboardTier(rescuingWithSelectionReader: false)
@@ -152,24 +162,28 @@ public final class CaptureCoordinator {
             captureInFlight = false
             switch result {
             case let .copied(text):
-                finish(with: text)
+                finish(with: text, via: rescue ? "pasteboard (rich source)" : "pasteboard")
             case .nothingSelected:
                 if rescue, let text = selectionReader.readSelection() {
-                    finish(with: text)
+                    finish(with: text, via: "selection rescue")
                 } else {
+                    Self.logger.info("capture ended: nothing selected")
                     onOutcome?(.nothingSelected)
                 }
             case .failed:
                 if rescue, let text = selectionReader.readSelection() {
-                    finish(with: text)
+                    finish(with: text, via: "selection rescue")
                 } else {
+                    // The failing step already logged its own error; this is
+                    // the sequence marker.
+                    Self.logger.info("capture ended: pasteboard tier failed")
                     onOutcome?(.captureFailed)
                 }
             }
         }
     }
 
-    private func finish(with text: String) {
+    private func finish(with text: String, via tier: String) {
         // Cap before the duplicate check: the stored note holds capped text,
         // and comparing raw text against it would let a re-fired over-cap
         // capture slip past the guard.
@@ -178,13 +192,16 @@ public final class CaptureCoordinator {
             // Re-surface the existing note instead of adding a copy — the
             // double-fire reads as one successful capture, not a silent
             // no-op.
+            Self.logger.info("duplicate capture via \(tier, privacy: .public) tier; re-surfacing the existing note")
             onOutcome?(.captured(existing))
             return
         }
         if let item = store.add(text: text) {
             lastCapture = (item.id, now())
+            Self.logger.info("captured \(text.count) chars via \(tier, privacy: .public) tier")
             onOutcome?(.captured(item))
         } else {
+            Self.logger.info("capture ended: whitespace-only text via \(tier, privacy: .public) tier")
             onOutcome?(.nothingSelected)
         }
     }

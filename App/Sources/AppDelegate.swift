@@ -46,6 +46,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             onShowPermissions: { [weak self] in
                 self?.onboarding?.show()
+            },
+            onCopyDiagnostics: { [weak self] in
+                self?.copyDiagnostics()
             }
         )
         self.statusItemController = statusItemController
@@ -142,6 +145,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         uiState.onShowPermissions = { [weak onboarding] in
             onboarding?.show()
         }
+        uiState.onCopyDiagnostics = { [weak self] in
+            self?.copyDiagnostics()
+        }
 
         if storage.savesSuspended {
             uiState.storageError = "Notes file can't be read — saving is off to protect it"
@@ -199,6 +205,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         store?.flush()
+    }
+
+    private func copyDiagnostics() {
+        Task { [weak self] in
+            let outcome = await Diagnostics.copyReport()
+            guard let self else { return }
+            // Flash description and toast state the same clipboard outcome —
+            // a VoiceOver user on the status-item path and a sighted user
+            // watching the panel must not hear different stories.
+            let (symbol, message, duration): (String, String, TimeInterval) = switch outcome {
+            case .copied:
+                ("doc.on.clipboard", "Diagnostics copied", 0.8)
+            case .errorCopied:
+                ("exclamationmark.circle", "Couldn't read logs — error copied", 2)
+            case .failed:
+                ("exclamationmark.circle", "Couldn't copy diagnostics", 2)
+            }
+            statusItemController?.flash(symbolName: symbol, description: message, duration: duration)
+            if panelController?.isVisible == true {
+                uiState.showToast(message)
+            }
+        }
     }
 
     private func handleCapture(_ outcome: CaptureCoordinator.Outcome) {

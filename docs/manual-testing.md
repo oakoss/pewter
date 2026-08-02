@@ -171,7 +171,16 @@ an AX answer delivers plain text that passes through untouched.
       other system menus, aligned with the icon, with every item visible —
       "Reveal Notes File in Finder" first, no scroll chevron at the top
 - [ ] The menu is a launcher only: Reveal Notes File, Settings…,
-      Permissions…, Quit — no configuration submenus
+      Permissions…, Copy Diagnostics, Quit — no configuration submenus
+- [ ] Copy Diagnostics after a few captures → clipboard holds a report with
+      an app/macOS version header and timestamped entries, including the
+      info-level capture decisions (e.g. flavor skips); the status icon
+      flashes a clipboard symbol
+- [ ] Copy Diagnostics from the panel's ellipsis menu with the panel open →
+      same report, plus a "Diagnostics copied" toast
+- [ ] Copy Diagnostics right after a fresh launch with no activity →
+      report renders with "No log entries in the window." (or only the
+      launch entries), not an error
 - [ ] Menu bar style set to Tinted (macOS 26, Appearance settings) with
       Reduce Transparency on → the status icon stays legible
 - [ ] Status item near the right screen edge (Cmd-drag it as far right as it

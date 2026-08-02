@@ -162,6 +162,7 @@ struct PanelRootView: View {
             Button("Settings…") { uiState.onOpenSettings?() }
             Button("Reveal Notes File in Finder") { uiState.onRevealNotesFile?() }
             Button("Permissions…") { uiState.onShowPermissions?() }
+            Button("Copy Diagnostics") { uiState.onCopyDiagnostics?() }
             Divider()
             Button("Quit Pewter") { NSApp.terminate(nil) }
         } label: {
