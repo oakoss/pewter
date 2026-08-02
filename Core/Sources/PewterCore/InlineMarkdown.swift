@@ -7,7 +7,7 @@ import os
 /// renders as one block.
 @MainActor
 public enum InlineMarkdown {
-    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "panel")
+    private static let logger = Logger.panel
 
     /// Parsing runs on every render of a failing note; once per distinct
     /// text keeps the trail without flooding the log.

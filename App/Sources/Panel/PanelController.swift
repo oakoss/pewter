@@ -5,7 +5,7 @@ import SwiftUI
 
 @MainActor
 final class PanelController {
-    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "panel")
+    private static let logger = Logger.panel
 
     private let panel: FloatingPanel
 
@@ -75,7 +75,7 @@ final class PanelController {
                 frame: panel.frame,
                 // A frame on no screen at all (display unplugged mid-run)
                 // has no offset worth preserving; identity-translate so it
-                // just clamps back onto the target screen.
+                // clamps back onto the target screen.
                 from: source ?? target.visibleFrame,
                 to: target.visibleFrame
             )

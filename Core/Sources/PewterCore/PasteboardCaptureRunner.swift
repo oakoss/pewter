@@ -44,7 +44,7 @@ public protocol PasteboardCaptureSurface {
 /// surface so the branches that need a GPU terminal or a clipboard manager
 /// to reproduce live are table-testable.
 public enum PasteboardCaptureRunner {
-    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "capture")
+    private static let logger = Logger.capture
 
     @MainActor
     public static func run(on surface: some PasteboardCaptureSurface) async -> PasteboardCaptureResult {

@@ -82,6 +82,8 @@ Things that will bite you:
 10. **Don't switch to `MenuBarExtra`.** It activates the app on open, which
     steals focus from the app the user is capturing from and breaks the
     non-activating panel design.
+11. **Capture logs its tier fallbacks and abandoned pasteboard flavors** to
+    unified logging — `mise run logs` tails them while you reproduce.
 
 ## Code style
 

@@ -18,7 +18,7 @@ final class HotKeyCenter {
         case unchanged, applied, failed
     }
 
-    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "hotkey")
+    private static let logger = Logger.hotkey
     private static let signature = OSType(0x534C_4B31) // "SLK1"
 
     private var handlers: [UInt32: () -> Void] = [:]

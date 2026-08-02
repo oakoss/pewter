@@ -10,7 +10,7 @@ import PewterCore
 /// `PasteboardCaptureRunner`.
 @MainActor
 struct PasteboardCapture: PasteboardCapturing, PasteboardCaptureSurface {
-    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "capture")
+    private static let logger = Logger.capture
 
     /// True when the clipboard changed within the last few seconds. TUIs
     /// (Claude Code) auto-copy their selection on select, so recent activity

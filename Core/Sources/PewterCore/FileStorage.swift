@@ -17,7 +17,7 @@ public final class FileStorage: @unchecked Sendable {
         case recovered
     }
 
-    private let logger = Logger(subsystem: "com.oakoss.Pewter", category: "storage")
+    private let logger = Logger.storage
     private let queue = DispatchQueue(label: "com.oakoss.Pewter.storage")
     // Callbacks are delivered on this separate serial queue so they never run
     // while `queue` is held — a handler that synchronously calls back into

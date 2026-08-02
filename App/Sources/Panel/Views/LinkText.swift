@@ -1,5 +1,6 @@
 import AppKit
 import os
+import PewterCore
 import SwiftUI
 
 /// Note text with tappable links. Only link glyphs are hit-testable — every
@@ -45,7 +46,7 @@ struct LinkText: NSViewRepresentable {
 }
 
 final class LinkTextView: NSTextView {
-    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "panel")
+    private static let logger = Logger.panel
 
     private var pressedLink: (url: URL, range: NSRange)?
 
@@ -123,7 +124,10 @@ final class LinkTextView: NSTextView {
             // Every hit-test said "link" — a silent no-op here would read
             // as a dead click with nothing to debug. Only the scheme is
             // public; the URL is note content.
-            Self.logger
+            //
+            // `Logger.panel` directly, not `Self.logger`: this closure is
+            // Sendable, and `Self.logger` is main-actor-isolated.
+            Logger.panel
                 .error("failed to open \(url.scheme ?? "?", privacy: .public) link: \(error.localizedDescription)")
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { NSSound.beep() }

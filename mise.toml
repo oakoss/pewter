@@ -74,6 +74,13 @@ run = [
   "zizmor ${ZIZMOR_FLAGS---offline} .github/workflows",
 ]
 
+[tasks.logs]
+description = "Tail the app's unified-logging output"
+# --level debug: the default stream level drops info/debug, which is most
+# of the capture decision trail. Full path keeps the line copy-paste-safe
+# in zsh, where `log` is a builtin.
+run = "/usr/bin/log stream --predicate 'subsystem == \"com.oakoss.Pewter\"' --level debug --style compact"
+
 [tasks.clean]
 description = "Remove generated project and build products"
 run = "rm -rf build Pewter.xcodeproj Core/.build"

@@ -184,7 +184,7 @@ private struct LaunchAtLoginRow: View {
         }
     }
 
-    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "settings")
+    private static let logger = Logger.settings
 
     @State private var isOn = LaunchAtLogin.isEnabled
     @State private var hint: Hint?
