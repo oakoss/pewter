@@ -10,7 +10,7 @@ import PewterCore
 /// layout far more often than quotation.
 @MainActor
 enum AttributedTextBlocks {
-    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "capture")
+    private static let logger = Logger.capture
 
     static func blocks(fromRTF data: Data) -> [RichTextBlock]? {
         do {

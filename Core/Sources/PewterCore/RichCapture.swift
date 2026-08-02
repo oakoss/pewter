@@ -44,7 +44,7 @@ public struct PasteboardFlavors {
 /// disappeared" report has a trail.
 @MainActor
 enum RichCapture {
-    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "capture")
+    private static let logger = Logger.capture
 
     /// Flavors above this size skip conversion — a payload this large means
     /// a full-page copy, and the parse cost would land on the main actor

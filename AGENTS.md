@@ -13,6 +13,7 @@ mise run lint     # swiftformat, markdownlint, actionlint, zizmor
 mise run ci       # lint + test + build in parallel (pre-push check)
 mise run icon     # re-render AppIcon PNGs from App/AppIcon.svg
 mise run run      # build and relaunch
+mise run logs     # tail the app's unified-logging output
 ```
 
 Git hooks are managed by lefthook (`lefthook install` after clone; tools come

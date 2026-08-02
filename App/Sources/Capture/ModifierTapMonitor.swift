@@ -12,7 +12,7 @@ import PewterCore
 /// is granted silently never fires — call `start()` again after the grant.
 @MainActor
 final class ModifierTapMonitor {
-    private static let logger = Logger(subsystem: "com.oakoss.Pewter", category: "capture")
+    private static let logger = Logger.capture
 
     var onDoubleTap: (() -> Void)?
 
