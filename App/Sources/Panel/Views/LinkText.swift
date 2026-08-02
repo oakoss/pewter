@@ -46,8 +46,6 @@ struct LinkText: NSViewRepresentable {
 }
 
 final class LinkTextView: NSTextView {
-    private static let logger = Logger.panel
-
     private var pressedLink: (url: URL, range: NSRange)?
 
     override var acceptsFirstResponder: Bool {
@@ -125,8 +123,8 @@ final class LinkTextView: NSTextView {
             // as a dead click with nothing to debug. Only the scheme is
             // public; the URL is note content.
             //
-            // `Logger.panel` directly, not `Self.logger`: this closure is
-            // Sendable, and `Self.logger` is main-actor-isolated.
+            // `Logger.panel`, not a property on this class: the closure is
+            // Sendable, and statics on a @MainActor class are isolated.
             Logger.panel
                 .error("failed to open \(url.scheme ?? "?", privacy: .public) link: \(error.localizedDescription)")
             DispatchQueue.main.async {
