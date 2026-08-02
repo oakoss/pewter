@@ -160,6 +160,24 @@ struct DiagnosticsReportTests {
         #expect(!report.contains("/Users/test"))
     }
 
+    @Test func redactionStopsAtPathBoundaries() {
+        let report = DiagnosticsReport.render(
+            entries: [
+                DiagnosticsEntry(
+                    date: Date(timeIntervalSince1970: 0),
+                    category: "storage",
+                    level: "error",
+                    message: "/Users/alice/file and /Users/al/file and '/Users/al' locked"
+                ),
+            ],
+            header: "",
+            generatedAt: Date(timeIntervalSince1970: 0),
+            timeZone: utc,
+            homeDirectory: "/Users/al"
+        )
+        #expect(report.contains("/Users/alice/file and ~/file and '~' locked"))
+    }
+
     @Test func failureReasonsAreRedactedToo() {
         let report = DiagnosticsReport.failure(
             header: "",

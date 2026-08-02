@@ -91,7 +91,11 @@ public enum DiagnosticsReport {
     private static func finish(_ lines: [String], homeDirectory: String) -> String {
         let joined = lines.joined(separator: "\n")
         guard homeDirectory.count > 1 else { return joined }
-        return joined.replacingOccurrences(of: homeDirectory, with: "~")
+        // Boundary lookahead: a home of "/Users/al" must not chew into
+        // "/Users/alice"; anything that could continue a file name blocks
+        // the match.
+        let pattern = NSRegularExpression.escapedPattern(for: homeDirectory) + "(?![A-Za-z0-9_@%+=.~-])"
+        return joined.replacingOccurrences(of: pattern, with: "~", options: .regularExpression)
     }
 
     private static func formatter(_ format: String, _ timeZone: TimeZone) -> DateFormatter {
