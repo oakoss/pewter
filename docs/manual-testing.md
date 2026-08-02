@@ -200,6 +200,18 @@ an AX answer delivers plain text that passes through untouched.
 ## Panel behavior
 
 - [ ] Status-item click toggles the panel
+- [ ] Cmd+N moves focus to the composer from the list, the search field,
+      and mid-edit of a note
+- [ ] Cmd+N with an active search filter clears it — the note added next is
+      visible in the list
+- [ ] Cmd+W hides the panel from the list, the search field, and the
+      composer
+- [ ] Cmd+W while editing a note → panel hides; reopening shows the note
+      with its original text (the in-progress edit is discarded, same as
+      clicking away)
+- [ ] Esc keeps its ladder outside an edit (clear multi-selection → clear
+      filter → hide); while editing, Esc cancels the edit and the panel
+      stays up
 - [ ] Drag the panel's edge as narrow/short as it will go → it stops at a
       usable minimum (320×360) instead of clipping the list into a sliver
 - [ ] Ellipsis (…) button at the right of the search field renders bare

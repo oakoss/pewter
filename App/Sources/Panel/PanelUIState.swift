@@ -25,6 +25,9 @@ final class PanelUIState {
     /// item must open the window even when access is already granted.
     var onShowPermissions: (() -> Void)?
     var onCopyDiagnostics: (() -> Void)?
+    /// Cmd+W — the view can't reach the panel window, so hiding routes out
+    /// through the same closure seam as the launcher actions.
+    var onDismissPanel: (() -> Void)?
 
     /// One-shot scroll request, consumed by the next list-count change —
     /// unlike the 1 s highlight, it can't retarget a later, unrelated change.

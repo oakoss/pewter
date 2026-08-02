@@ -148,6 +148,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         uiState.onCopyDiagnostics = { [weak self] in
             self?.copyDiagnostics()
         }
+        uiState.onDismissPanel = { [weak panelController] in
+            panelController?.hide()
+        }
 
         if storage.savesSuspended {
             uiState.storageError = "Notes file can't be read — saving is off to protect it"

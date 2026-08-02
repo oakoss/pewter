@@ -101,9 +101,34 @@ struct PanelRootView: View {
                   focus == .list || focus == nil else { return .ignored }
             return mergeSelected()
         }
-        .onKeyPress(keys: ["f"], phases: .down) { press in
-            guard press.modifiers.contains(.command) else { return .ignored }
+        .onKeyPress(keys: ["f", "F"], phases: .down) { press in
+            guard press.modifiers.contains(.command),
+                  press.modifiers.isDisjoint(with: [.shift, .option, .control]) else { return .ignored }
             focus = .search
+            return .handled
+        }
+        .onKeyPress(keys: ["n", "N"], phases: .down) { press in
+            // No focus guard: jumping to the composer from anywhere —
+            // including mid-edit — is the point of the shortcut. The filter
+            // clears too, or the "searched, didn't find it, now add it"
+            // gesture would file the new note invisibly behind the query.
+            guard press.modifiers.contains(.command),
+                  press.modifiers.isDisjoint(with: [.shift, .option, .control]) else { return .ignored }
+            focus = .quickAdd
+            uiState.query = ""
+            return .handled
+        }
+        .onKeyPress(keys: ["w", "W"], phases: .down) { press in
+            guard press.modifiers.contains(.command),
+                  press.modifiers.isDisjoint(with: [.shift, .option, .control]) else { return .ignored }
+            // Cancel an in-progress edit explicitly — the discard must not
+            // depend on resign-key timing, and the panel survives hidden.
+            // Focus moves off the removed editor for the same reason.
+            editingID = nil
+            if focus == .editor {
+                focus = .list
+            }
+            uiState.onDismissPanel?()
             return .handled
         }
         .onKeyPress(.escape) {
