@@ -176,6 +176,12 @@ an AX answer delivers plain text that passes through untouched.
       an app/macOS version header and timestamped entries, including the
       info-level capture decisions (e.g. flavor skips); the status icon
       flashes a clipboard symbol
+- [ ] The report header states the active settings — trigger, both hotkey
+      chords (or "off"), Accessibility state, Launch at login — matching
+      what the settings window shows
+- [ ] Delete, merge, and undo in the panel, edit the notes file externally,
+      change the trigger or a hotkey → each leaves a breadcrumb in the next
+      Copy Diagnostics report (counts and chord names, never note text)
 - [ ] Copy Diagnostics from the panel's ellipsis menu with the panel open →
       same report, plus a "Diagnostics copied" toast
 - [ ] Copy Diagnostics right after a fresh launch with no activity →

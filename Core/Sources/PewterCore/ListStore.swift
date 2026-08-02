@@ -1,9 +1,16 @@
 import Foundation
 import Observation
+import os
 
 @MainActor
 @Observable
 public final class ListStore {
+    /// Note-lifecycle breadcrumbs — counts only, never content. "Where did
+    /// my note go" reports hinge on these; benign high-frequency actions
+    /// (toggle done, edits) stay silent so they can't push the interesting
+    /// lines out of the diagnostics window.
+    private static let logger = Logger.panel
+
     public private(set) var document: MarkdownDocument
     private let storage: FileStorage?
 
@@ -51,6 +58,9 @@ public final class ListStore {
     /// document that no longer exists.
     public func applyExternalChange(_ newDocument: MarkdownDocument) {
         storage?.cancelPendingSave()
+        let before = document.items.count
+        let after = newDocument.items.count
+        Logger.storage.info("external edit replaced the document: \(before) → \(after) notes; undo history cleared")
         document = newDocument
         deletedBatches.removeAll()
     }
@@ -82,6 +92,7 @@ public final class ListStore {
     public func delete(ids: Set<UUID>) {
         let removed = document.removeAll(ids: ids)
         guard !removed.isEmpty else { return }
+        Self.logger.info("deleted \(removed.count) notes")
         recordUndo(UndoBatch(removed: removed))
         persist()
     }
@@ -106,6 +117,7 @@ public final class ListStore {
         let removed = document.removeAll(ids: ids)
         guard let index = removed.first?.index else { return nil }
         document.insert(merged, at: index)
+        Self.logger.info("merged \(sources.count) notes into one")
         recordUndo(UndoBatch(removed: removed, insertedIDs: [merged.id]))
         persist()
         return merged
@@ -128,6 +140,7 @@ public final class ListStore {
     /// against.
     public func undoDelete() -> [Item] {
         guard let batch = deletedBatches.popLast() else { return [] }
+        Self.logger.info("undo restored \(batch.removed.count) notes")
         if !batch.insertedIDs.isEmpty {
             _ = document.removeAll(ids: batch.insertedIDs)
         }

@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import OSLog
 import PewterCore
 
@@ -40,11 +41,21 @@ enum Diagnostics {
         return Pasteboard.write(report) ? .copied : .failed
     }
 
+    /// Version plus the active settings — a "capture did nothing" report
+    /// should answer "are you using the trigger you think you are" and
+    /// "is Accessibility actually granted" without a follow-up question.
     private static func headerLine() -> String {
         let info = Bundle.main.infoDictionary
         let version = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
-        return "Pewter \(version) (\(build)) — macOS \(ProcessInfo.processInfo.operatingSystemVersionString)"
+        let capture = HotKeySlot.capture.chord()?.display ?? "off"
+        let panel = HotKeySlot.panelToggle.chord()?.display ?? "off"
+        return """
+        Pewter \(version) (\(build)) — macOS \(ProcessInfo.processInfo.operatingSystemVersionString)
+        Trigger: \(CaptureSettings.tapModifier.title) · Capture hotkey: \(capture) · Panel hotkey: \(panel)
+        Accessibility: \(AXIsProcessTrusted() ? "granted" : "not granted") · Launch at login: \(LaunchAtLogin
+            .isEnabled ? "on" : "off")
+        """
     }
 
     private static func recentEntries(now: Date) throws -> [DiagnosticsEntry] {
