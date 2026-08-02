@@ -123,7 +123,11 @@ struct PanelRootView: View {
                   press.modifiers.isDisjoint(with: [.shift, .option, .control]) else { return .ignored }
             // Cancel an in-progress edit explicitly — the discard must not
             // depend on resign-key timing, and the panel survives hidden.
+            // Focus moves off the removed editor for the same reason.
             editingID = nil
+            if focus == .editor {
+                focus = .list
+            }
             uiState.onDismissPanel?()
             return .handled
         }
