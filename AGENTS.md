@@ -42,6 +42,9 @@ feeds czg's prompt, not the linter. Pre-push runs the Core tests.
   event order matters.
 - New logic goes in `Core/` with tests when it has no AppKit dependency;
   UI/window behavior is covered by `docs/manual-testing.md` instead.
+- Log privacy: Copy Diagnostics reads our own log store, where
+  default-privacy interpolations render verbatim — mark anything that can
+  carry note or clipboard content `privacy: .private`.
 - TCC/signing gotchas (stable identity, `tccutil reset`, WWDR G3) live in
   CONTRIBUTING.md — read it before touching capture or entitlements.
 

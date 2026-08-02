@@ -4,7 +4,9 @@ import os
 /// every call site stays greppable with the same predicate. The
 /// `mise run logs` predicate hardcodes the same subsystem string.
 public extension Logger {
-    private static let pewterSubsystem = "com.oakoss.Pewter"
+    /// Public for readers of the store — the diagnostics export builds its
+    /// OSLogStore predicate from this.
+    static let pewterSubsystem = "com.oakoss.Pewter"
 
     static let capture = Logger(subsystem: pewterSubsystem, category: "capture")
     static let panel = Logger(subsystem: pewterSubsystem, category: "panel")

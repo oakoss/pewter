@@ -7,18 +7,21 @@ final class StatusItemController: NSObject {
     private let onRevealFile: () -> Void
     private let onShowSettings: () -> Void
     private let onShowPermissions: () -> Void
+    private let onCopyDiagnostics: () -> Void
 
     init(
         onToggle: @escaping (NSStatusBarButton?) -> Void,
         onRevealFile: @escaping () -> Void,
         onShowSettings: @escaping () -> Void,
-        onShowPermissions: @escaping () -> Void
+        onShowPermissions: @escaping () -> Void,
+        onCopyDiagnostics: @escaping () -> Void
     ) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         self.onToggle = onToggle
         self.onRevealFile = onRevealFile
         self.onShowSettings = onShowSettings
         self.onShowPermissions = onShowPermissions
+        self.onCopyDiagnostics = onCopyDiagnostics
         super.init()
 
         if let button = statusItem.button {
@@ -85,6 +88,10 @@ final class StatusItemController: NSObject {
         permissions.target = self
         menu.addItem(permissions)
 
+        let diagnostics = NSMenuItem(title: "Copy Diagnostics", action: #selector(copyDiagnostics), keyEquivalent: "")
+        diagnostics.target = self
+        menu.addItem(diagnostics)
+
         menu.addItem(.separator())
 
         let quit = NSMenuItem(
@@ -131,5 +138,9 @@ final class StatusItemController: NSObject {
 
     @objc private func showPermissions() {
         onShowPermissions()
+    }
+
+    @objc private func copyDiagnostics() {
+        onCopyDiagnostics()
     }
 }

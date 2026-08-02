@@ -120,13 +120,17 @@ final class LinkTextView: NSTextView {
         NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration()) { _, error in
             guard let error else { return }
             // Every hit-test said "link" — a silent no-op here would read
-            // as a dead click with nothing to debug. Only the scheme is
-            // public; the URL is note content.
+            // as a dead click with nothing to debug. The scheme is public;
+            // the error description is explicitly private because it can
+            // embed the URL — note content — and own-process log reads
+            // (Copy Diagnostics) render default-privacy values verbatim.
             //
             // `Logger.panel`, not a property on this class: the closure is
             // Sendable, and statics on a @MainActor class are isolated.
             Logger.panel
-                .error("failed to open \(url.scheme ?? "?", privacy: .public) link: \(error.localizedDescription)")
+                .error(
+                    "failed to open \(url.scheme ?? "?", privacy: .public) link: \(error.localizedDescription, privacy: .private)"
+                )
             DispatchQueue.main.async {
                 MainActor.assumeIsolated { NSSound.beep() }
             }
