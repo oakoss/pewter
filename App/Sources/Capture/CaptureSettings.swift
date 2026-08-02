@@ -1,4 +1,6 @@
 import AppKit
+import os
+import PewterCore
 
 /// User-configurable capture triggers, persisted in UserDefaults. The
 /// double-tap modifier is configurable because tools like Karabiner's
@@ -44,6 +46,9 @@ enum CaptureSettings {
                 .flatMap(TapModifier.init(rawValue:)) ?? .shift
         }
         set {
+            // Timestamps the moment behavior changed — "double-tap stopped
+            // working" reports often start at a settings change.
+            Logger.settings.info("capture trigger changed to double-tap \(newValue.rawValue, privacy: .public)")
             UserDefaults.standard.set(newValue.rawValue, forKey: tapModifierKey)
         }
     }

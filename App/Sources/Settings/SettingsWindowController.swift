@@ -241,6 +241,7 @@ private struct LaunchAtLoginRow: View {
         let status = LaunchAtLogin.status
         isOn = status == .enabled
         if wanted == isOn {
+            Self.logger.info("launch at login turned \(wanted ? "on" : "off", privacy: .public)")
             hint = nil
         } else if wanted, status == .requiresApproval {
             hint = .needsApproval

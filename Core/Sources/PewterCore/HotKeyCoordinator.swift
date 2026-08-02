@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Seam between the recorder UI and the live trigger state, so the model
 /// can be exercised against a fake.
@@ -67,6 +68,9 @@ public final class HotKeyCoordinator: HotKeyCoordinating {
         for slot in HotKeySlot.allCases {
             let desired = isRecording ? nil : slot.chord(in: defaults)
             if !arm(slot, desired) {
+                // The common "my shortcut turned itself off" path — some
+                // callers surface no UI for it, so the log is the record.
+                Logger.hotkey.error("\(slot.title, privacy: .public) failed to arm; stored shortcut cleared")
                 slot.setChord(nil, in: defaults)
                 failed.insert(slot)
             }
@@ -78,8 +82,10 @@ public final class HotKeyCoordinator: HotKeyCoordinating {
         let previous = slot.chord(in: defaults)
         slot.setChord(chord, in: defaults)
         if arm(slot, chord) {
+            Logger.hotkey.info("assigned \(chord.display, privacy: .public) to \(slot.title, privacy: .public)")
             return nil
         }
+        Logger.hotkey.info("\(chord.display, privacy: .public) refused for \(slot.title, privacy: .public)")
         slot.setChord(previous, in: defaults)
         // The slot is disarmed after a refusal, so this is a real
         // registration attempt; a stored chord must never display as
@@ -87,11 +93,18 @@ public final class HotKeyCoordinator: HotKeyCoordinating {
         if arm(slot, previous) {
             return "That shortcut is taken by another app"
         }
+        // The user's previously working chord is gone — the hint saying so
+        // is transient, so the durable record is this line.
+        Logger.hotkey
+            .error(
+                "previous \(previous?.display ?? "off", privacy: .public) also refused for \(slot.title, privacy: .public); shortcut cleared"
+            )
         slot.setChord(nil, in: defaults)
         return "That shortcut is taken — and another app claimed the previous one too"
     }
 
     public func clear(_ slot: HotKeySlot) {
+        Logger.hotkey.info("cleared the \(slot.title, privacy: .public) shortcut")
         slot.setChord(nil, in: defaults)
         // Disarming cannot be refused; while recording the slot is already
         // disarmed and the endRecording resync makes it stick.
