@@ -468,6 +468,29 @@ an AX answer delivers plain text that passes through untouched.
 - [ ] When a panel binding changes in code, the guide's table changes in the
       same PR (check the diff touches ShortcutGuideView.swift)
 
+## VoiceOver
+
+- [ ] VO to a note row → reads the note text with "Done" or "Not done" as
+      the value; done state is never conveyed by strikethrough alone
+- [ ] Row actions menu (VO-⌘-Space) lists Select, Edit, Mark as
+      Done/Not Done, Copy, Delete — each acts on that row only
+- [ ] Select three notes (shift-arrow), VO to one of them, invoke Delete →
+      only that row is deleted, not the selection
+- [ ] Invoke Edit from the row actions menu → the text field takes VO focus
+      and typed text lands in the note
+- [ ] The row's checkbox is not exposed separately (no double-speak of the
+      done state)
+- [ ] GATING: capture from another app with VO running → the outcome
+      ("Captured", "Nothing selected", "Capture failed") is spoken. macOS
+      only speaks announcements from the frontmost app, and the capture
+      source is frontmost by design — if this does not speak, the
+      announcement design needs rework, not a checked box
+- [ ] Copy Diagnostics from the status item with the panel open → the
+      outcome is announced once, not twice (the toast suppresses its own
+      announcement when the flash carried it)
+- [ ] Panel-only toasts (e.g. a shortcut arming failure at launch) are
+      announced
+
 ## Redo (Shift-Cmd-Z)
 
 - [ ] Delete a multi-selection, Cmd+Z, Shift-Cmd-Z → all the notes vanish

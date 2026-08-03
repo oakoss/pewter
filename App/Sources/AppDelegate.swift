@@ -228,7 +228,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             statusItemController?.flash(symbolName: symbol, description: message, duration: duration)
             if panelController?.isVisible == true {
-                uiState.showToast(message)
+                // The flash already announced this exact message.
+                uiState.showToast(message, announces: false)
             }
         }
     }

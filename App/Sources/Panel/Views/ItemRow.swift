@@ -23,7 +23,11 @@ struct ItemRow: View {
     let onMenuToggle: () -> Void
     let canMerge: Bool
     let onMenuMerge: () -> Void
+    /// Row-scoped, unlike `onMenuDelete`: the VoiceOver row action presents
+    /// itself as acting on the element under the cursor and must not
+    /// silently widen to the selection.
     let onDelete: () -> Void
+    let onMenuDelete: () -> Void
 
     @State private var editText = ""
     @State private var isHovering = false
@@ -60,6 +64,16 @@ struct ItemRow: View {
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        // Done state as a value, not strikethrough alone — and every mouse
+        // route (tap to select, double-tap to edit, hover copy, menu
+        // delete) as a named action, since the combined row swallows the
+        // gestures VoiceOver can't reach.
+        .accessibilityValue(item.done ? "Done" : "Not done")
+        .accessibilityAction(named: "Select") { onSelect() }
+        .accessibilityAction(named: "Edit") { onBeginEdit() }
+        .accessibilityAction(named: item.done ? "Mark as Not Done" : "Mark as Done") { onToggle() }
+        .accessibilityAction(named: "Copy") { onCopy() }
+        .accessibilityAction(named: "Delete") { onDelete() }
         .onTapGesture(count: 2) { onBeginEdit() }
         .onTapGesture { onSelect() }
         .contextMenu {
@@ -74,7 +88,7 @@ struct ItemRow: View {
             Button("Merge Notes") { onMenuMerge() }
                 .disabled(!canMerge)
             Divider()
-            Button("Delete", role: .destructive) { onDelete() }
+            Button("Delete", role: .destructive) { onMenuDelete() }
         }
     }
 
@@ -122,8 +136,10 @@ struct ItemRow: View {
         // every row below it.
         .opacity(showsCopyButton ? 1 : 0)
         .allowsHitTesting(showsCopyButton)
-        .accessibilityHidden(!showsCopyButton)
-        .accessibilityLabel("Copy")
+        // Unconditionally, not on hover: the row's Copy action covers
+        // VoiceOver, and a pointer resting on the row would otherwise
+        // surface a second Copy.
+        .accessibilityHidden(true)
         .help("Copy — ⌥ click to also mark as done")
     }
 
@@ -140,7 +156,9 @@ struct ItemRow: View {
         }
         .buttonStyle(.plain)
         .pointingHandCursor()
-        .accessibilityLabel(item.done ? "Mark as not done" : "Mark as done")
+        // The combined row carries done state as its value and toggling as
+        // a named action; exposing the button too would double-speak.
+        .accessibilityHidden(true)
     }
 
     @ViewBuilder
