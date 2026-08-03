@@ -20,3 +20,6 @@ ignores:
   - .beads/
   # a bare @AGENTS.md import directive, not prose
   - CLAUDE.md
+  # deliberately no h1 (the rendered PR's title supplies it), which MD041
+  # rejects; the rest is guidance comments and h2 sections
+  - .github/PULL_REQUEST_TEMPLATE.md

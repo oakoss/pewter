@@ -48,6 +48,26 @@ feeds czg's prompt, not the linter. Pre-push runs the Core tests.
 - TCC/signing gotchas (stable identity, `tccutil reset`, WWDR G3) live in
   CONTRIBUTING.md — read it before touching capture or entitlements.
 
+## Pull Requests
+
+PR bodies follow `.github/PULL_REQUEST_TEMPLATE.md`: a `Summary` (problem
+first, then the change and why this approach), plus a `Notes` section only
+when something non-obvious earned it — rejected alternatives, accepted
+limitations, dismissed review findings with their evidence, relevant
+`docs/manual-testing.md` items, follow-up issues.
+
+- Squash-merge uses the PR title and body as the mainline commit message,
+  so the body is permanent history — write it commit-worthy and delete the
+  template's guidance comments. The canonical don't-include list lives in
+  the template.
+- The PR title is the commit subject: it must satisfy commitlint
+  (`type(scope): subject`); the local commit-msg hook cannot run on
+  GitHub's squash commit, so the title is checked by eye.
+- No Claude session links in PR bodies — this overrides the default
+  Claude Code PR-body footer. The `Claude-Session` trailer goes in branch
+  commit messages instead, reachable via the PR's commits tab (squash
+  keeps it out of mainline).
+
 ## Non-Interactive Shell Commands
 
 **ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.
