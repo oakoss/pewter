@@ -80,7 +80,7 @@ description = "Workflow lint with zizmor's online audits (matches CI)"
 # offline mode, which is the false confidence this task exists to remove.
 run = '''
 token="${GH_TOKEN:-$(gh auth token 2>/dev/null)}"
-[ -n "$token" ] || { echo "lint:online: no GitHub token — run 'gh auth login'" >&2; exit 1; }
+[ -n "$token" ] || { echo "lint:online: no GitHub token — set GH_TOKEN or install gh and run 'gh auth login'" >&2; exit 1; }
 GH_TOKEN="$token" zizmor .github/workflows
 '''
 

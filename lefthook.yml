@@ -50,7 +50,7 @@ pre-push:
         mise run lint:online
         rc=$?
         [ "$rc" -ge 11 ] && [ "$rc" -le 14 ] && exit "$rc"
-        [ "$rc" -ne 0 ] && echo "zizmor online audits unavailable (rc=$rc); CI is the backstop"
+        [ "$rc" -ne 0 ] && echo "zizmor online audits unavailable (rc=$rc); CI is the backstop" >&2
         exit 0
     beads:
       # git's pre-push protocol delivers the ref list on stdin
