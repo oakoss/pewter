@@ -479,6 +479,9 @@ an AX answer delivers plain text that passes through untouched.
 - [ ] VO to the search and quick-add fields → they announce as "Search
       notes" and "New note"
 - [ ] Activate a row (VO-Space) → it becomes selected
+- [ ] VO to a selected row (activate it, then re-read it) → it still
+      speaks the note text plus "Done"/"Not done"; selection must not
+      empty the label
 - [ ] With a row's inline editor open, VO-Space on the row → the editor
       stays up and the uncommitted text survives (the row's activation is
       inert while editing)

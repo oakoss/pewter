@@ -67,14 +67,15 @@ struct ItemRow: View {
         // skips on hover and won't traverse. Activation selects; the named
         // actions carry the other verbs. The trait drops and the action
         // guards while the inline editor is up, or activating the row
-        // would move focus off the editor and discard the edit.
-        .accessibilityAddTraits(isEditing ? [] : .isButton)
+        // would move focus off the editor and discard the edit. One traits
+        // call: splitting these across two accessibilityAddTraits calls
+        // emptied the selected row's label (verified by AX dump).
+        .accessibilityAddTraits(rowTraits)
         .accessibilityAction {
             if !isEditing {
                 onSelect()
             }
         }
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
         // Done state as a value, not strikethrough alone — and every mouse
         // route (tap to select, double-tap to edit, hover copy, menu
         // delete) as a named action, since the combined row swallows the
@@ -107,6 +108,17 @@ struct ItemRow: View {
             Divider()
             Button("Delete", role: .destructive) { onMenuDelete() }
         }
+    }
+
+    private var rowTraits: AccessibilityTraits {
+        var traits: AccessibilityTraits = []
+        if !isEditing {
+            traits.formUnion(.isButton)
+        }
+        if isSelected {
+            traits.formUnion(.isSelected)
+        }
+        return traits
     }
 
     private var backgroundStyle: AnyShapeStyle {
