@@ -215,17 +215,19 @@ struct FileStorageTests {
         #expect(storage.health == .ok)
 
         // Values must arrive in transition order — a stale .ok delivered
-        // after the failure would clear a live banner.
+        // after the failure would clear a live banner. The first .ok is the
+        // registration delivery; the recovery .ok must come after the
+        // failure.
         let all = changes.all
-        let failIndex = all.firstIndex {
+        let failIndex = try #require(all.firstIndex {
             if case .saveFailed = $0 {
                 true
             } else {
                 false
             }
-        }
-        let okIndex = all.firstIndex(of: .ok)
-        #expect(failIndex != nil && okIndex != nil && failIndex! < okIndex!)
+        })
+        let okIndex = try #require(all.lastIndex(of: .ok))
+        #expect(failIndex < okIndex)
 
         // Change-only contract: a repeat healthy save produces no callback.
         let countAfterRecovery = all.count
@@ -275,7 +277,17 @@ struct FileStorageTests {
         if case .saveFailed = storage.health {} else {
             Issue.record("expected .saveFailed to persist, got \(storage.health)")
         }
-        #expect(!changes.all.contains(.ok))
+        // No .ok after the failure — the only .ok is the registration
+        // delivery that preceded it.
+        let all = changes.all
+        let failIndex = try #require(all.firstIndex {
+            if case .saveFailed = $0 {
+                true
+            } else {
+                false
+            }
+        })
+        #expect(!all[(failIndex + 1)...].contains(.ok))
     }
 
     @Test func deletingUnreadableFileRestoresHealthAndSaves() async throws {
@@ -300,7 +312,7 @@ struct FileStorageTests {
         try FileManager.default.removeItem(at: url)
         try await waitUntilStorage { external.count == 1 }
         #expect(external.last?.items.isEmpty == true)
-        try await waitUntilStorage { changes.all.last == .ok }
+        try await waitUntilStorage { changes.all == [.ok, .unreadable, .ok] }
 
         // Saves must resume, not stay suspended forever.
         var document = MarkdownDocument()
@@ -309,7 +321,7 @@ struct FileStorageTests {
         #expect(FileStorage(fileURL: url).load().items.map(\.text) == ["fresh start"])
     }
 
-    @Test func healthDetectedBeforeWiringIsReadNotReplayed() async throws {
+    @Test func registrationDeliversCurrentHealth() async throws {
         let url = temporaryFileURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
@@ -322,14 +334,17 @@ struct FileStorageTests {
         let storage = FileStorage(fileURL: url)
         _ = storage.load()
 
-        // Wiring after the transition: the callback stays silent — the
-        // consumer must read `health` after wiring, and that read sees the
-        // problem detected at load.
+        // Wiring after the transition still surfaces it: registration
+        // delivers the current value, so no consumer-side initial read
+        // exists to race the wiring.
         let changes = HealthBox()
         storage.setOnHealthChange { changes.append($0) }
-        #expect(storage.health == .unreadable)
+        try await waitUntilStorage { changes.all == [.unreadable] }
+        // Settle, then re-assert: "once" is part of the contract, and the
+        // wait alone would miss a duplicate delivery arriving late.
         try await Task.sleep(for: .milliseconds(150))
-        #expect(changes.all.isEmpty)
+        #expect(changes.all == [.unreadable])
+        #expect(storage.health == .unreadable)
     }
 
     @Test func suspensionClearsWhenFileBecomesReadable() async throws {
@@ -356,8 +371,7 @@ struct FileStorageTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(storage.health != .unreadable)
-        try await waitUntilStorage { changes.all.last == .ok }
-        #expect(changes.all == [.unreadable, .ok])
+        try await waitUntilStorage { changes.all == [.ok, .unreadable, .ok] }
 
         // Saves work again after recovery.
         var document = MarkdownDocument()

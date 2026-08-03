@@ -59,13 +59,19 @@ public final class FileStorage: @unchecked Sendable {
         queue.sync { onExternalChange = handler }
     }
 
-    /// Invoked on an arbitrary queue whenever `health` changes; not called
-    /// for the initial state, so read `health` after wiring to pick up
-    /// problems detected at load. Equal values coalesce, so a surface
-    /// cleared independently of this handler (e.g. a dismissed banner)
-    /// won't reappear on a repeat of the same failure.
+    /// Invoked on an arbitrary queue with the current value once at
+    /// registration, then with the new value whenever `health` changes —
+    /// no separate initial read is needed, and nothing can slip between
+    /// the read and the wiring. Equal values coalesce after that first
+    /// delivery, so a surface cleared independently of this handler
+    /// (e.g. a dismissed banner) won't reappear on a repeat of the same
+    /// failure.
     public func setOnHealthChange(_ handler: @escaping @Sendable (Health) -> Void) {
-        queue.sync { onHealthChange = handler }
+        queue.sync {
+            onHealthChange = handler
+            let current = currentHealth
+            eventQueue.async { handler(current) }
+        }
     }
 
     // MARK: - Load / save

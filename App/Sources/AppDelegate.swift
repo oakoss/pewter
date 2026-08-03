@@ -154,10 +154,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panelController?.hide()
         }
 
-        // Wire before reading the initial value: a change landing in
-        // between would be dropped by the change-only callback. Reading
-        // first would risk applying health twice, but applyStorageHealth
-        // is idempotent, so that ordering would be harmless too.
         storage.setOnHealthChange { [weak self] health in
             // DispatchQueue.main is FIFO; unstructured Tasks are not, and
             // health values applied out of order would render a stale banner.
@@ -167,7 +163,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
-        applyStorageHealth(storage.health)
 
         permission.onGranted = { [weak self] in
             self?.hotKeyCoordinator?.syncTriggers()
