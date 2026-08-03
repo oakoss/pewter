@@ -67,6 +67,13 @@ limitations, dismissed review findings with their evidence, relevant
   Claude Code PR-body footer. The `Claude-Session` trailer goes in branch
   commit messages instead, reachable via the PR's commits tab (squash
   keeps it out of mainline).
+- Watch PR checks with one background command instead of timed re-checks:
+  `sleep 20 && gh pr checks <number> --watch --fail-fast` (exit 0 = all
+  pass; exit 1 = a check failed *or* gh errored — read the output before
+  concluding CI is red). The sleep matters — checks register a few
+  seconds after push, and an immediate watch dies with "no checks
+  reported", which also exits 1. "Copilot review posted" is itself a
+  check, so this covers the Copilot wait too.
 
 ## Non-Interactive Shell Commands
 

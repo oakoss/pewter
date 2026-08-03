@@ -74,6 +74,16 @@ run = [
   "zizmor ${ZIZMOR_FLAGS---offline} .github/workflows",
 ]
 
+[tasks."lint:online"]
+description = "Workflow lint with zizmor's online audits (matches CI)"
+# Loud failure without a token: token-less zizmor silently falls back to
+# offline mode, which is the false confidence this task exists to remove.
+run = '''
+token="${GH_TOKEN:-$(gh auth token 2>/dev/null)}"
+[ -n "$token" ] || { echo "lint:online: no GitHub token — run 'gh auth login'" >&2; exit 1; }
+GH_TOKEN="$token" zizmor .github/workflows
+'''
+
 [tasks.logs]
 description = "Tail the app's unified-logging output"
 # --level debug: the default stream level drops info/debug, which is most
