@@ -50,7 +50,7 @@ struct ShortcutGuideView: View {
                         Text(group.title)
                             .font(.caption.smallCaps().weight(.semibold))
                             .foregroundStyle(.secondary)
-                        ForEach(group.entries, id: \.action) { entry in
+                        ForEach(group.entries, id: \.keys) { entry in
                             HStack(alignment: .firstTextBaseline) {
                                 Text(entry.keys)
                                     .font(.callout.monospaced())
