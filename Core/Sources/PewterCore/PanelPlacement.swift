@@ -19,14 +19,15 @@ public enum PanelPlacement {
         let offsetX = frame.minX - source.minX
         let topOffset = source.maxY - frame.maxY
 
-        var origin = CGPoint(
+        let origin = CGPoint(
             x: target.minX + offsetX,
             y: target.maxY - topOffset - frame.height
         )
-        // Outer max/min pick the winning edge when the frame doesn't fit:
-        // left and top stay visible — that's where the panel's controls are.
-        origin.x = max(min(origin.x, target.maxX - frame.width - inset), target.minX + inset)
-        origin.y = min(max(origin.y, target.minY + inset), target.maxY - frame.height - inset)
-        return CGRect(origin: origin, size: frame.size)
+        return ScreenGeometry.clamp(
+            CGRect(origin: origin, size: frame.size),
+            inside: target,
+            inset: inset,
+            keeping: .topLeft
+        )
     }
 }

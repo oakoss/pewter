@@ -23,28 +23,12 @@ public enum CaptureHUDPlacement {
         if origin.y < screen.minY + inset {
             origin.y = anchor.maxY + gap
         }
-        origin.x = max(min(origin.x, screen.maxX - size.width - inset), screen.minX + inset)
-        origin.y = max(min(origin.y, screen.maxY - size.height - inset), screen.minY + inset)
-        return CGRect(origin: origin, size: size)
-    }
-
-    /// Index into `screens` of the frame that should host a HUD anchored at
-    /// `anchor`: greatest overlap area first. A zero-area anchor (the mouse
-    /// point, a caret) matches by edge-inclusive containment — a cursor
-    /// pinned to a screen's top or right edge reports exactly maxY/maxX,
-    /// which exclusive-edge intersection misses. nil when no screen matches.
-    public static func screenIndex(for anchor: CGRect, in screens: [CGRect]) -> Int? {
-        let overlaps = screens.map { screen in
-            let intersection = screen.intersection(anchor)
-            return intersection.isNull ? 0 : intersection.width * intersection.height
-        }
-        if let best = overlaps.indices.max(by: { overlaps[$0] < overlaps[$1] }), overlaps[best] > 0 {
-            return best
-        }
-        return screens.firstIndex { screen in
-            (screen.minX ... screen.maxX).contains(anchor.midX)
-                && (screen.minY ... screen.maxY).contains(anchor.midY)
-        }
+        return ScreenGeometry.clamp(
+            CGRect(origin: origin, size: size),
+            inside: screen,
+            inset: inset,
+            keeping: .bottomLeft
+        )
     }
 
     /// Converts an AX-reported global rect (top-left origin) into an AppKit
@@ -64,7 +48,7 @@ public enum CaptureHUDPlacement {
             width: axRect.width,
             height: axRect.height
         )
-        guard screenIndex(for: converted, in: screens) != nil else { return nil }
+        guard ScreenGeometry.screenIndex(for: converted, in: screens) != nil else { return nil }
         return converted
     }
 }
