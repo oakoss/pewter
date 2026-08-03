@@ -68,9 +68,9 @@ final class PanelController {
            let target = Self.activeScreen(),
            !target.frame.intersects(panel.frame)
         {
-            let source = NSScreen.screens
-                .max(by: { intersectionArea($0) < intersectionArea($1) })
-                .flatMap { intersectionArea($0) > 0 ? $0.visibleFrame : nil }
+            let screens = NSScreen.screens
+            let source = ScreenGeometry.screenIndex(for: panel.frame, in: screens.map(\.frame))
+                .map { screens[$0].visibleFrame }
             let moved = PanelPlacement.translate(
                 frame: panel.frame,
                 // A frame on no screen at all (display unplugged mid-run)
@@ -102,11 +102,11 @@ final class PanelController {
         return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
     }
 
-    private func intersectionArea(_ screen: NSScreen) -> CGFloat {
-        let intersection = screen.frame.intersection(panel.frame)
-        return intersection.isNull ? 0 : intersection.width * intersection.height
-    }
-
+    /// Deliberately partial, unlike ScreenGeometry.clamp: this only runs
+    /// for status-item-anchored placement, where the anchor already fixes
+    /// the top edge — pinning it too would shift the panel off its 4pt
+    /// gap under the menu bar. The x-ordering also differs (right edge
+    /// wins for an over-wide panel), so neither axis migrates cleanly.
     private func constrained(_ origin: NSPoint, for screen: NSScreen?) -> NSPoint {
         guard let visible = (screen ?? NSScreen.main)?.visibleFrame else { return origin }
         var origin = origin

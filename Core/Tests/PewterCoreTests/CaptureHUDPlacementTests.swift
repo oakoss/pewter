@@ -98,50 +98,6 @@ struct CaptureHUDPlacementTests {
     }
 }
 
-struct CaptureHUDScreenIndexTests {
-    private let primary = CGRect(x: 0, y: 0, width: 1440, height: 900)
-    private let external = CGRect(x: 1440, y: 0, width: 2560, height: 1440)
-
-    @Test func seamSpanningAnchorPicksTheGreaterOverlap() {
-        let anchor = CGRect(x: 1400, y: 300, width: 200, height: 40)
-        #expect(CaptureHUDPlacement.screenIndex(for: anchor, in: [primary, external]) == 1)
-    }
-
-    @Test func pointInsideAScreenMatchesIt() {
-        let point = CGRect(x: 2000, y: 500, width: 0, height: 0)
-        #expect(CaptureHUDPlacement.screenIndex(for: point, in: [primary, external]) == 1)
-    }
-
-    @Test func pointPinnedToTheTopEdgeStillMatches() {
-        // NSEvent.mouseLocation reports exactly maxY for a cursor pinned to
-        // the top of a screen; exclusive-edge intersection would miss it.
-        let point = CGRect(x: 700, y: 900, width: 0, height: 0)
-        #expect(CaptureHUDPlacement.screenIndex(for: point, in: [primary, external]) == 0)
-    }
-
-    @Test func pointPinnedToTheRightEdgeStillMatches() {
-        let point = CGRect(x: 4000, y: 500, width: 0, height: 0)
-        #expect(CaptureHUDPlacement.screenIndex(for: point, in: [primary, external]) == 1)
-    }
-
-    @Test func anchorOnNoScreenReturnsNil() {
-        let anchor = CGRect(x: 9000, y: 9000, width: 10, height: 10)
-        #expect(CaptureHUDPlacement.screenIndex(for: anchor, in: [primary, external]) == nil)
-    }
-
-    @Test func pointOnASharedSeamResolvesToTheFirstScreen() {
-        // Callers pass NSScreen.screens, where index 0 is the primary; the
-        // tie-break is part of the contract.
-        let point = CGRect(x: 1440, y: 500, width: 0, height: 0)
-        #expect(CaptureHUDPlacement.screenIndex(for: point, in: [primary, external]) == 0)
-    }
-
-    @Test func emptyScreenListReturnsNil() {
-        let point = CGRect(x: 100, y: 100, width: 0, height: 0)
-        #expect(CaptureHUDPlacement.screenIndex(for: point, in: []) == nil)
-    }
-}
-
 struct CaptureHUDNormalizedAnchorTests {
     private let primary = CGRect(x: 0, y: 0, width: 1440, height: 900)
 

@@ -48,7 +48,7 @@ final class CaptureHUDController {
     func show(_ feedback: CaptureFeedback, anchor selectionAnchor: CGRect?) {
         let anchor = selectionAnchor ?? CGRect(origin: NSEvent.mouseLocation, size: .zero)
         let screens = NSScreen.screens
-        let screen = CaptureHUDPlacement.screenIndex(for: anchor, in: screens.map(\.frame))
+        let screen = ScreenGeometry.screenIndex(for: anchor, in: screens.map(\.frame))
             .map { screens[$0] } ?? NSScreen.main
         guard let visible = screen?.visibleFrame else {
             Self.logger.debug("capture HUD skipped: no screen available")
