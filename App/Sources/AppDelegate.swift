@@ -154,27 +154,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panelController?.hide()
         }
 
-        if storage.savesSuspended {
-            uiState.storageError = "Notes file can't be read — saving is off to protect it"
-        }
-        storage.setOnStorageEvent { [weak self] event in
+        // Wire before reading the initial value: a change landing in
+        // between would be dropped by the change-only callback. Reading
+        // first would risk applying health twice, but applyStorageHealth
+        // is idempotent, so that ordering would be harmless too.
+        storage.setOnHealthChange { [weak self] health in
             // DispatchQueue.main is FIFO; unstructured Tasks are not, and
-            // these events swapping order would render the wrong banner
-            // (e.g. saveSucceeded clearing a still-live protection banner).
+            // health values applied out of order would render a stale banner.
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    guard let self else { return }
-                    switch event {
-                    case let .saveFailed(reason):
-                        self.uiState.storageError = "Couldn't save your notes — \(reason)"
-                    case .saveSucceeded, .recovered:
-                        self.uiState.storageError = nil
-                    case .protectedUnreadable:
-                        self.uiState.storageError = "Notes file can't be read — saving is off to protect it"
-                    }
+                    self?.applyStorageHealth(health)
                 }
             }
         }
+        applyStorageHealth(storage.health)
 
         permission.onGranted = { [weak self] in
             self?.hotKeyCoordinator?.syncTriggers()
@@ -197,6 +190,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panelController?.show(relativeTo: statusItemController?.button)
         for slot in HotKeySlot.allCases where failed.contains(slot) {
             uiState.showToast(slot.armingFailureMessage)
+        }
+    }
+
+    private func applyStorageHealth(_ health: FileStorage.Health) {
+        uiState.storageError = switch health {
+        case .ok:
+            nil
+        case let .saveFailed(reason):
+            "Couldn't save your notes — \(reason)"
+        case .unreadable:
+            "Notes file can't be read — saving is off to protect it"
         }
     }
 
