@@ -1,8 +1,19 @@
+import CoreGraphics
 import Foundation
 import os
 
+/// One Accessibility read. Anchors are AppKit bottom-left globals; nil
+/// means the app exposed no usable geometry and feedback should anchor on
+/// the mouse instead.
+public enum SelectionRead: Equatable, Sendable {
+    /// A non-empty selection and, when available, its screen bounds.
+    case selection(text: String, bounds: CGRect?)
+    /// No selection; `caret` still marks where the user is working.
+    case noSelection(caret: CGRect?)
+}
+
 public protocol SelectionReading {
-    @MainActor func readSelection() -> String?
+    @MainActor func readSelection() -> SelectionRead
 }
 
 public enum PasteboardCaptureResult: Equatable, Sendable {
@@ -22,9 +33,16 @@ public protocol PasteboardCapturing {
 /// Dependencies are protocols so this flow is testable with fakes.
 @MainActor
 public final class CaptureCoordinator {
+    /// Anchors ride the outcome so feedback lands where the capture
+    /// happened, read once by the same pass that produced the text — a
+    /// second AX read after the capture would race the frontmost app's
+    /// state. Pasteboard-tier captures carry nil (no AX element by
+    /// construction). A failed capture carries none structurally: even a
+    /// rescue read's caret is discarded there, because failure feedback
+    /// must not anchor on an app that may be unresponsive.
     public enum Outcome: Equatable {
-        case captured(Item)
-        case nothingSelected
+        case captured(Item, anchor: CGRect?)
+        case nothingSelected(anchor: CGRect?)
         case captureFailed
         case notPermitted
     }
@@ -139,18 +157,24 @@ public final class CaptureCoordinator {
         // keeps formatting the AX read flattens — and their AX selection
         // mashes block boundaries — so the AX read demotes to a rescue.
         if prefersRichSource() {
-            runPasteboardTier(rescuingWithSelectionReader: true)
+            runPasteboardTier(rescuingWithSelectionReader: true, caretAnchor: nil)
             return
         }
 
-        if let text = selectionReader.readSelection() {
-            finish(with: text, via: "selection")
-            return
+        switch selectionReader.readSelection() {
+        case let .selection(text, bounds):
+            finish(with: text, anchor: bounds, noTextAnchor: bounds, via: "selection")
+        case let .noSelection(caret):
+            // The caret is still the right spot for nothing-selected
+            // feedback if the fallback comes up empty too. It can be a few
+            // hundred ms stale by then (the pasteboard tier runs in
+            // between); the HUD's screen re-resolution and clamping bound
+            // the drift.
+            runPasteboardTier(rescuingWithSelectionReader: false, caretAnchor: caret)
         }
-        runPasteboardTier(rescuingWithSelectionReader: false)
     }
 
-    private func runPasteboardTier(rescuingWithSelectionReader rescue: Bool) {
+    private func runPasteboardTier(rescuingWithSelectionReader rescue: Bool, caretAnchor: CGRect?) {
         captureInFlight = true
         Task { [weak self] in
             // Holding only the capture dependency across the await keeps a
@@ -162,17 +186,26 @@ public final class CaptureCoordinator {
             captureInFlight = false
             switch result {
             case let .copied(text):
-                finish(with: text, via: rescue ? "pasteboard (rich source)" : "pasteboard")
+                // Clipboard text carries no AX anchor, but if it turns out
+                // to be whitespace-only the outcome is "nothing selected"
+                // — exactly what the pre-read caret exists to place.
+                finish(
+                    with: text,
+                    anchor: nil,
+                    noTextAnchor: caretAnchor,
+                    via: rescue ? "pasteboard (rich source)" : "pasteboard"
+                )
             case .nothingSelected:
-                if rescue, let text = selectionReader.readSelection() {
-                    finish(with: text, via: "selection rescue")
-                } else {
+                switch rescue ? selectionReader.readSelection() : .noSelection(caret: caretAnchor) {
+                case let .selection(text, bounds):
+                    finish(with: text, anchor: bounds, noTextAnchor: bounds, via: "selection rescue")
+                case let .noSelection(caret):
                     Self.logger.info("capture ended: nothing selected")
-                    onOutcome?(.nothingSelected)
+                    onOutcome?(.nothingSelected(anchor: caret))
                 }
             case .failed:
-                if rescue, let text = selectionReader.readSelection() {
-                    finish(with: text, via: "selection rescue")
+                if rescue, case let .selection(text, bounds) = selectionReader.readSelection() {
+                    finish(with: text, anchor: bounds, noTextAnchor: bounds, via: "selection rescue")
                 } else {
                     // The failing step already logged its own error; this is
                     // the sequence marker.
@@ -183,7 +216,12 @@ public final class CaptureCoordinator {
         }
     }
 
-    private func finish(with text: String, via tier: String) {
+    /// `anchor` rides a successful capture; `noTextAnchor` places the
+    /// nothing-selected feedback when the text turns out to be
+    /// whitespace-only — the two can differ on the pasteboard tier, where
+    /// clipboard text has no AX anchor but the pre-read caret still marks
+    /// where the user is working.
+    private func finish(with text: String, anchor: CGRect?, noTextAnchor: CGRect?, via tier: String) {
         // Cap before the duplicate check: the stored note holds capped text,
         // and comparing raw text against it would let a re-fired over-cap
         // capture slip past the guard.
@@ -193,16 +231,16 @@ public final class CaptureCoordinator {
             // double-fire reads as one successful capture, not a silent
             // no-op.
             Self.logger.info("duplicate capture via \(tier, privacy: .public) tier; re-surfacing the existing note")
-            onOutcome?(.captured(existing))
+            onOutcome?(.captured(existing, anchor: anchor))
             return
         }
         if let item = store.add(text: text) {
             lastCapture = (item.id, now())
             Self.logger.info("captured \(text.count) chars via \(tier, privacy: .public) tier")
-            onOutcome?(.captured(item))
+            onOutcome?(.captured(item, anchor: anchor))
         } else {
             Self.logger.info("capture ended: whitespace-only text via \(tier, privacy: .public) tier")
-            onOutcome?(.nothingSelected)
+            onOutcome?(.nothingSelected(anchor: noTextAnchor))
         }
     }
 

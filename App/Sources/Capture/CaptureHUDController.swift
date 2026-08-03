@@ -12,37 +12,6 @@ import SwiftUI
 final class CaptureHUDController {
     private static let logger = Logger.capture
 
-    enum Feedback {
-        case captured
-        case nothingSelected
-        case captureFailed
-
-        var symbolName: String {
-            switch self {
-            case .captured: "checkmark.circle"
-            case .nothingSelected: "xmark.circle"
-            case .captureFailed: "exclamationmark.circle"
-            }
-        }
-
-        var message: String {
-            switch self {
-            case .captured: "Captured"
-            case .nothingSelected: "No text selected"
-            case .captureFailed: "Couldn't capture — try copying manually"
-            }
-        }
-
-        /// Failure text is an instruction the user has to read and act on;
-        /// it stays up longer than the success confirmation.
-        var duration: TimeInterval {
-            switch self {
-            case .captured: 1.2
-            case .nothingSelected, .captureFailed: 2
-            }
-        }
-    }
-
     private let panel: NSPanel
     private var dismissTask: Task<Void, Never>?
     /// Ties each fade-out to the show that scheduled it: a stale fade's
@@ -74,11 +43,9 @@ final class CaptureHUDController {
         dismissTask?.cancel()
     }
 
-    func show(_ feedback: Feedback) {
-        // A failed capture often means an unresponsive frontmost app —
-        // asking it for bounds again would stall this feedback for the AX
-        // timeout. Anchor failure on the mouse directly.
-        let selectionAnchor = feedback == .captureFailed ? nil : SelectionReader().selectionBounds()
+    /// `anchor` comes from the capture's own AX read, carried on the
+    /// outcome; nil (pasteboard captures, failures) anchors on the mouse.
+    func show(_ feedback: CaptureFeedback, anchor selectionAnchor: CGRect?) {
         let anchor = selectionAnchor ?? CGRect(origin: NSEvent.mouseLocation, size: .zero)
         let screens = NSScreen.screens
         let screen = CaptureHUDPlacement.screenIndex(for: anchor, in: screens.map(\.frame))
@@ -109,17 +76,22 @@ final class CaptureHUDController {
             panel.animator().alphaValue = 1
         }
         dismissTask = Task { [weak self] in
+            // Cancellation alone guards this body — a newer show cancels
+            // before it can fade the wrong HUD.
             try? await Task.sleep(for: .seconds(feedback.duration))
-            guard !Task.isCancelled, let self, generation == shown else { return }
+            guard !Task.isCancelled, let self else { return }
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.3
                 panel.animator().alphaValue = 0
-            } completionHandler: { [weak self] in
+            } completionHandler: {
                 // AppKit invokes this on the main thread but types it
                 // nonisolated; assumeIsolated keeps strict concurrency
-                // honest without hopping actors.
+                // honest without hopping actors. The generation check is
+                // load-bearing only here: the completion isn't cancellable,
+                // and a stale fade's completion must not order out a HUD a
+                // newer show has since put up.
                 MainActor.assumeIsolated {
-                    guard let self, self.generation == shown else { return }
+                    guard self.generation == shown else { return }
                     self.panel.orderOut(nil)
                 }
             }
@@ -128,7 +100,7 @@ final class CaptureHUDController {
 }
 
 private struct CaptureHUDView: View {
-    let feedback: CaptureHUDController.Feedback
+    let feedback: CaptureFeedback
 
     var body: some View {
         Label(feedback.message, systemImage: feedback.symbolName)

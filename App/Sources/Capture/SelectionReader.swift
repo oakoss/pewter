@@ -4,32 +4,41 @@ import os
 import PewterCore
 
 /// Reads the selected text of the frontmost app via the Accessibility API —
-/// fast, invisible, no clipboard side effects. Returns nil for apps that
-/// don't expose their selection at all; the pasteboard fallback covers those.
+/// fast, invisible, no clipboard side effects — together with the screen
+/// anchor for capture feedback, from the same element and range. Reports
+/// no selection for apps that don't expose theirs at all; the pasteboard
+/// fallback covers those.
 struct SelectionReader: SelectionReading {
     private static let logger = Logger.capture
 
+    private static let axReadTimeout: Float = 0.25
+    private static let axWalkTimeout: Float = 0.1
+    /// An anchor must not stall the capture it decorates.
+    private static let axAnchorTimeout: Float = 0.1
+
     @MainActor
-    func readSelection() -> String? {
-        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
+    func readSelection() -> SelectionRead {
+        guard let app = NSWorkspace.shared.frontmostApplication else { return .noSelection(caret: nil) }
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         // AX calls block until the target app answers; without a timeout an
         // unresponsive frontmost app would beachball us for seconds.
-        AXUIElementSetMessagingTimeout(appElement, 0.25)
+        AXUIElementSetMessagingTimeout(appElement, Self.axReadTimeout)
 
         // Fast path: the focused element carries the selection (standard
         // text fields, most native apps).
         if let focused = element(of: kAXFocusedUIElementAttribute, on: appElement) {
-            if let text = selection(on: focused) {
-                return text
+            if let read = selection(on: focused) {
+                return read
             }
             // A focused element that SUPPORTS selected text but has none is
             // the user's real text context — walking now would return some
             // background pane's retained (stale) selection. Only walk when
             // the focused element has no notion of selected text at all.
+            // The empty range's bounds are the caret: the right anchor for
+            // nothing-selected feedback.
             var probe: CFTypeRef?
             if AXUIElementCopyAttributeValue(focused, kAXSelectedTextAttribute as CFString, &probe) == .success {
-                return nil
+                return .noSelection(caret: anchor(on: focused))
             }
         }
 
@@ -39,7 +48,9 @@ struct SelectionReader: SelectionReading {
         // focused window breadth-first, bounded, for any selected text. Also
         // rescues them from the pasteboard fallback, whose synthetic Cmd+C
         // they ignore.
-        guard let window = element(of: kAXFocusedWindowAttribute, on: appElement) else { return nil }
+        guard let window = element(of: kAXFocusedWindowAttribute, on: appElement) else {
+            return .noSelection(caret: nil)
+        }
         var queue = [window]
         var visited = 0
         // Count-bounded AND time-bounded: 80 elements at the 0.1 s per-call
@@ -48,10 +59,10 @@ struct SelectionReader: SelectionReading {
         while !queue.isEmpty, visited < 80, ContinuousClock.now < deadline {
             let current = queue.removeFirst()
             visited += 1
-            AXUIElementSetMessagingTimeout(current, 0.1)
+            AXUIElementSetMessagingTimeout(current, Self.axWalkTimeout)
 
-            if let text = selection(on: current) {
-                return text
+            if let read = selection(on: current) {
+                return read
             }
 
             var childrenRef: CFTypeRef?
@@ -66,40 +77,70 @@ struct SelectionReader: SelectionReading {
             // early" when debugging why the AX tier misses an app.
             Self.logger.debug("AX walk hit element cap with \(queue.count) unvisited; falling back")
         }
-        return nil
+        return .noSelection(caret: nil)
     }
 
-    /// Screen bounds of the focused element's selected text in AppKit
-    /// bottom-left coordinates (AX reports top-left-origin globals). nil
-    /// when the focused element exposes no usable bounds — window-walk and
-    /// pasteboard captures land here — and the caller anchors on the mouse
-    /// instead.
-    @MainActor
-    func selectionBounds() -> CGRect? {
-        guard let app = NSWorkspace.shared.frontmostApplication else { return nil }
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        // Tighter budget than the capture read: the anchor is cosmetic, and
-        // an app slow to answer AX (a busy GPU terminal) must not delay the
-        // feedback the anchor positions — give up fast, fall back to the
-        // mouse.
-        AXUIElementSetMessagingTimeout(appElement, 0.1)
-        guard let focused = element(of: kAXFocusedUIElementAttribute, on: appElement) else { return nil }
-        AXUIElementSetMessagingTimeout(focused, 0.1)
+    /// Non-empty selected text of one element with its screen anchor, via
+    /// AXSelectedText or the parameterized string-for-range lookup some
+    /// WebKit views require.
+    private func selection(on element: AXUIElement) -> SelectionRead? {
+        if let text = string(of: kAXSelectedTextAttribute, on: element), !text.isEmpty {
+            return .selection(text: text, bounds: anchor(on: element))
+        }
 
-        var rangeRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-            focused,
-            kAXSelectedTextRangeAttribute as CFString,
-            &rangeRef
+        guard let rangeRef = selectedRange(on: element) else { return nil }
+
+        var textRef: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(
+            element,
+            kAXStringForRangeParameterizedAttribute as CFString,
+            rangeRef,
+            &textRef
         ) == .success,
-            let rangeRef,
-            CFGetTypeID(rangeRef) == AXValueGetTypeID(),
-            AXValueGetType(unsafeDowncast(rangeRef as AnyObject, to: AXValue.self)) == .cfRange
+            let text = textRef as? String,
+            !text.isEmpty
         else { return nil }
+
+        return .selection(text: text, bounds: anchor(on: element, range: rangeRef))
+    }
+
+    /// The element's selected-text range, validated as an AXValue-wrapped
+    /// CFRange. nil covers "unsupported" and "answered with the wrong
+    /// type" alike — the expected-common case for non-text elements.
+    private func selectedRange(on element: AXUIElement) -> CFTypeRef? {
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextRangeAttribute as CFString,
+            &ref
+        ) == .success,
+            let ref,
+            CFGetTypeID(ref) == AXValueGetTypeID(),
+            AXValueGetType(unsafeDowncast(ref as AnyObject, to: AXValue.self)) == .cfRange
+        else { return nil }
+        return ref
+    }
+
+    /// Screen anchor for the element's selected range — the caret when the
+    /// range is empty — normalized to AppKit coordinates. nil when the app
+    /// exposes no usable bounds; feedback then anchors on the mouse.
+    private func anchor(on element: AXUIElement, range: CFTypeRef? = nil) -> CGRect? {
+        // Tighter budget than the capture read: the anchor is cosmetic,
+        // and an app slow to answer AX must not stall the capture it
+        // decorates. Safe to narrow here — these are the element's last
+        // AX calls on every path.
+        AXUIElementSetMessagingTimeout(element, Self.axAnchorTimeout)
+
+        guard let rangeRef = range ?? selectedRange(on: element) else {
+            // Anomalous when reached: both callers already proved the
+            // element supports selected text.
+            Self.logger.debug("selected-range fetch for anchor failed; anchoring on mouse")
+            return nil
+        }
 
         var boundsRef: CFTypeRef?
         let boundsError = AXUIElementCopyParameterizedAttributeValue(
-            focused,
+            element,
             kAXBoundsForRangeParameterizedAttribute as CFString,
             rangeRef,
             &boundsRef
@@ -136,38 +177,6 @@ struct SelectionReader: SelectionReading {
         return converted
     }
 
-    /// Non-empty selected text of one element, via AXSelectedText or the
-    /// parameterized string-for-range lookup some WebKit views require.
-    private func selection(on element: AXUIElement) -> String? {
-        if let text = string(of: kAXSelectedTextAttribute, on: element), !text.isEmpty {
-            return text
-        }
-
-        var rangeRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(
-            element,
-            kAXSelectedTextRangeAttribute as CFString,
-            &rangeRef
-        ) == .success,
-            let rangeRef,
-            CFGetTypeID(rangeRef) == AXValueGetTypeID(),
-            AXValueGetType(unsafeDowncast(rangeRef as AnyObject, to: AXValue.self)) == .cfRange
-        else { return nil }
-
-        var textRef: CFTypeRef?
-        guard AXUIElementCopyParameterizedAttributeValue(
-            element,
-            kAXStringForRangeParameterizedAttribute as CFString,
-            rangeRef,
-            &textRef
-        ) == .success,
-            let text = textRef as? String,
-            !text.isEmpty
-        else { return nil }
-
-        return text
-    }
-
     private func element(of attribute: String, on parent: AXUIElement) -> AXUIElement? {
         var ref: CFTypeRef?
         guard AXUIElementCopyAttributeValue(parent, attribute as CFString, &ref) == .success,
@@ -175,7 +184,7 @@ struct SelectionReader: SelectionReading {
               CFGetTypeID(ref) == AXUIElementGetTypeID()
         else { return nil }
         let element = unsafeDowncast(ref as AnyObject, to: AXUIElement.self)
-        AXUIElementSetMessagingTimeout(element, 0.25)
+        AXUIElementSetMessagingTimeout(element, Self.axReadTimeout)
         return element
     }
 

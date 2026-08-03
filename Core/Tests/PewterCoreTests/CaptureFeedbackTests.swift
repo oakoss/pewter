@@ -1,0 +1,27 @@
+import Foundation
+@testable import PewterCore
+import Testing
+
+struct CaptureFeedbackTests {
+    @Test func everySurfaceValueIsPinned() {
+        // Symbol, message, and duration feed both the HUD and the
+        // VoiceOver-read status flash; a drift in any of them changes what
+        // users are told.
+        #expect(CaptureFeedback.captured.symbolName == "checkmark.circle")
+        #expect(CaptureFeedback.captured.message == "Captured")
+        #expect(CaptureFeedback.captured.duration == 1.2)
+
+        #expect(CaptureFeedback.nothingSelected.symbolName == "xmark.circle")
+        #expect(CaptureFeedback.nothingSelected.message == "No text selected")
+        #expect(CaptureFeedback.nothingSelected.duration == 2)
+
+        #expect(CaptureFeedback.captureFailed.symbolName == "exclamationmark.circle")
+        #expect(CaptureFeedback.captureFailed.message == "Couldn't capture — try copying manually")
+        #expect(CaptureFeedback.captureFailed.duration == 2)
+    }
+
+    @Test func failureFeedbackOutlastsSuccess() {
+        #expect(CaptureFeedback.captureFailed.duration > CaptureFeedback.captured.duration)
+        #expect(CaptureFeedback.nothingSelected.duration > CaptureFeedback.captured.duration)
+    }
+}

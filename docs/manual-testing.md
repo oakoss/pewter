@@ -179,8 +179,11 @@ an AX answer delivers plain text that passes through untouched.
       closed and TextEdit keeps focus (keep typing — no keystroke is lost)
 - [ ] Capture a selection near the bottom of the screen → the HUD flips
       above the selection instead of clipping offscreen
-- [ ] Capture in a browser or Ghostty (no focused-element AX bounds) → the
-      HUD anchors at the mouse pointer
+- [ ] Capture in a browser (pasteboard tier — no AX element) → the HUD
+      anchors at the mouse pointer
+- [ ] Ghostty plain shell: select output, capture → the HUD anchors at
+      the selection (the window walk that found the text also reads its
+      bounds)
 - [ ] Capture with the panel already open → the HUD still shows, and the
       new note scrolls into view highlighted; the panel does not move
 - [ ] Two captures in quick succession → the second HUD replaces the first
