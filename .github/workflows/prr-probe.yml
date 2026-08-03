@@ -1,0 +1,28 @@
+# Throwaway probe for pw-mf5 — never merges. Answers two questions at
+# once IF it runs: (a) Copilot's App-posted review fires
+# pull_request_review, and (b) the event uses the PR branch's workflow
+# file (this file exists only on the probe branch).
+name: PRR Probe
+
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions: {}
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Log review event
+        env:
+          REVIEWER: ${{ github.event.review.user.login }}
+          STATE: ${{ github.event.review.state }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "review by: $REVIEWER"
+          echo "state: $STATE"
+          echo "pr head: $HEAD_SHA"
+          echo "event sha: $GITHUB_SHA"
+          echo "event ref: $GITHUB_REF"
