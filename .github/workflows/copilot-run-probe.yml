@@ -1,0 +1,44 @@
+# Temporary probe for pw-mf5: observes whether the internal Copilot
+# code-review workflow ("Copilot", dynamic/agents/copilot-pull-request-
+# reviewer) emits workflow_run events. workflow_run only executes from the
+# default branch, so the probe must live on main. Removed once the verdict
+# is recorded on the issue.
+name: Copilot Run Probe
+
+on:
+  # The dangerous-triggers risk is untrusted checkout under elevated
+  # permissions; this job has permissions: {}, no checkout, no secrets,
+  # and only echoes event metadata.
+  #
+  # CI is the positive control: it completes on the merge push, proving
+  # the probe is live — fired-for-CI-but-never-for-Copilot is a clean
+  # negative, total silence means the probe is broken. Keep the explicit
+  # allowlist; a bare workflow_run would trigger on this probe's own runs.
+  workflow_run: # zizmor: ignore[dangerous-triggers]
+    workflows: ["Copilot", "CI"]
+    types: [requested, in_progress, completed]
+
+permissions: {}
+
+jobs:
+  log:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Log workflow_run event
+        env:
+          WR_NAME: ${{ github.event.workflow_run.name }}
+          # The path is the emitter discriminator — run names are display
+          # labels (Copilot's is "Running Copilot Code Review").
+          WR_PATH: ${{ github.event.workflow_run.path }}
+          WR_EVENT: ${{ github.event.workflow_run.event }}
+          WR_ACTION: ${{ github.event.action }}
+          WR_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WR_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          WR_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          echo "workflow_run from: $WR_NAME ($WR_PATH)"
+          echo "activity: $WR_ACTION"
+          echo "triggering event: $WR_EVENT"
+          echo "conclusion: $WR_CONCLUSION"
+          echo "head: $WR_HEAD_SHA ($WR_HEAD_BRANCH)"
