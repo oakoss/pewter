@@ -236,8 +236,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // would read as failed. A hidden panel keeps its filter —
                 // the HUD already confirmed the capture.
                 uiState.query = ""
-                uiState.highlight(item.id)
             }
+            // Unconditional: a visible list lands on the new note, and a
+            // hidden panel keeps the target so the scroll lands on the
+            // next summon. A filtered-out id scrolls nowhere.
+            uiState.reveal(item.id)
             showCaptureFeedback(.captured, anchor: anchor)
         case let .nothingSelected(anchor):
             showCaptureFeedback(.nothingSelected, anchor: anchor)

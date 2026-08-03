@@ -354,14 +354,11 @@ struct PanelRootView: View {
                 selection.clear()
                 focus = .list
             }
-            .onChange(of: store.items.count) {
-                // An explicit request (undo restore, merge) wins over the
-                // tail-append heuristic — those notes can land mid-list.
-                if let target = uiState.takeScrollTarget() {
-                    withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(target) }
-                } else if let last = store.items.last, uiState.query.isEmpty {
-                    withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(last.id) }
-                }
+            .onChange(of: uiState.revealToken) {
+                // The token, not the id: revealing the same note twice must
+                // scroll both times, and the id alone wouldn't change.
+                guard let target = uiState.revealTargetID else { return }
+                withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(target) }
             }
             .onChange(of: collapseScrollTarget) { _, target in
                 guard let target else { return }
@@ -446,7 +443,11 @@ struct PanelRootView: View {
             .onSubmit {
                 if let added = store.add(text: draft) {
                     draft = ""
+                    // Same rule as capture: a filter that hides the new
+                    // note would make the add read as a failure.
+                    uiState.query = ""
                     selection.select(added.id)
+                    uiState.reveal(added.id)
                 }
                 focus = .quickAdd
             }
@@ -509,10 +510,7 @@ struct PanelRootView: View {
         guard selection.isMultiple,
               let merged = store.merge(ids: selection.selected) else { return .ignored }
         selection.select(merged.id)
-        uiState.highlight(merged.id)
-        // Explicit request wins over the tail-append heuristic — the merged
-        // note lands mid-list, same as an undo restore.
-        uiState.requestScroll(to: merged.id)
+        uiState.reveal(merged.id)
         return .handled
     }
 
@@ -546,8 +544,7 @@ struct PanelRootView: View {
         selection.replace(with: Set(restored.map(\.id)), order: visibleOrder)
         focus = .list
         if let first = restored.first {
-            uiState.highlight(first.id)
-            uiState.requestScroll(to: first.id)
+            uiState.reveal(first.id)
         }
         return .handled
     }
@@ -559,8 +556,7 @@ struct PanelRootView: View {
             // same feedback shape as undo's restored notes.
             selection.replace(with: [product.id], order: visibleOrder)
             focus = .list
-            uiState.highlight(product.id)
-            uiState.requestScroll(to: product.id)
+            uiState.reveal(product.id)
         } else {
             // A delete redo only removes; drop the vanished ids so the
             // selection can't point at notes that no longer exist.
