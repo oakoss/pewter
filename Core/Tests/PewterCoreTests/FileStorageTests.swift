@@ -119,7 +119,7 @@ struct FileStorageTests {
         let storage = FileStorage(fileURL: url)
         let document = storage.load()
         #expect(document.items.isEmpty)
-        #expect(storage.savesSuspended)
+        #expect(storage.health == .unreadable)
 
         var edited = MarkdownDocument()
         edited.append(Item(text: "must not land"))
@@ -141,7 +141,10 @@ struct FileStorageTests {
         document.append(Item(text: "original"))
         storage.saveNow(document)
         _ = storage.load()
-        #expect(!storage.savesSuspended)
+        #expect(storage.health != .unreadable)
+
+        let changes = HealthBox()
+        storage.setOnHealthChange { changes.append($0) }
 
         // Schedule an in-app edit, then the file becomes unreadable before
         // the debounce fires.
@@ -151,10 +154,12 @@ struct FileStorageTests {
         try invalidBytes.write(to: url, options: .atomic)
 
         let deadline = ContinuousClock.now + .seconds(2)
-        while !storage.savesSuspended, ContinuousClock.now < deadline {
+        while storage.health != .unreadable, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(storage.savesSuspended)
+        #expect(storage.health == .unreadable)
+        // The banner depends on the callback, not the readable property.
+        try await waitUntilStorage { changes.all.last == .unreadable }
 
         // Past the debounce window: the pending save must not have landed —
         // the unreadable content the app never saw stays intact.
@@ -162,7 +167,7 @@ struct FileStorageTests {
         #expect(try Data(contentsOf: url) == invalidBytes)
     }
 
-    @Test func storageEventsReportSaveFailureAndRecovery() async throws {
+    @Test func healthReportsSaveFailureAndRecovery() async throws {
         // chmod 0o555 does not block root; as root the save would succeed
         // and this test would time out with a misleading message.
         try #require(getuid() != 0, "cannot exercise permission failures as root")
@@ -178,48 +183,168 @@ struct FileStorageTests {
         var document = MarkdownDocument()
         document.append(Item(text: "first"))
         storage.saveNow(document)
+        #expect(storage.health == .ok)
 
-        let events = EventBox()
-        storage.setOnStorageEvent { events.append($0) }
+        let changes = HealthBox()
+        storage.setOnHealthChange { changes.append($0) }
 
         // Read-only directory: the atomic write's temp file can't be created.
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
         storage.saveNow(document)
-        try await waitUntilStorage { events.all.contains {
+        try await waitUntilStorage { changes.all.contains {
             if case .saveFailed = $0 {
                 true
             } else {
                 false
             }
         } }
+        if case .saveFailed = storage.health {} else {
+            Issue.record("expected .saveFailed, got \(storage.health)")
+        }
+
+        // A repeat failure with the same reason coalesces — the identical
+        // banner is already showing.
+        let countAfterFailure = changes.all.count
+        storage.saveNow(document)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(changes.all.count == countAfterFailure)
 
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
         storage.saveNow(document)
-        try await waitUntilStorage { events.all.contains {
-            if case .saveSucceeded = $0 {
+        try await waitUntilStorage { changes.all.last == .ok }
+        #expect(storage.health == .ok)
+
+        // Values must arrive in transition order — a stale .ok delivered
+        // after the failure would clear a live banner. The first .ok is the
+        // registration delivery; the recovery .ok must come after the
+        // failure.
+        let all = changes.all
+        let failIndex = try #require(all.firstIndex {
+            if case .saveFailed = $0 {
+                true
+            } else {
+                false
+            }
+        })
+        let okIndex = try #require(all.lastIndex(of: .ok))
+        #expect(failIndex < okIndex)
+
+        // Change-only contract: a repeat healthy save produces no callback.
+        let countAfterRecovery = all.count
+        storage.saveNow(document)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(changes.all.count == countAfterRecovery)
+    }
+
+    @Test func saveFailurePersistsAcrossExternalReads() async throws {
+        try #require(getuid() != 0, "cannot exercise permission failures as root")
+
+        let url = temporaryFileURL()
+        let directory = url.deletingLastPathComponent()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let storage = FileStorage(fileURL: url)
+        var document = MarkdownDocument()
+        document.append(Item(text: "first"))
+        storage.saveNow(document)
+        _ = storage.load()
+
+        let changes = HealthBox()
+        storage.setOnHealthChange { changes.append($0) }
+        let external = Box()
+        storage.setOnExternalChange { external.append($0) }
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
+        storage.saveNow(document)
+        try await waitUntilStorage { changes.all.contains {
+            if case .saveFailed = $0 {
                 true
             } else {
                 false
             }
         } }
 
-        // The banner logic is ordering-sensitive; lock the FIFO contract.
-        let all = events.all
-        let failIndex = all.firstIndex {
+        // A non-atomic write modifies the existing file in place (needs file
+        // permission only, so it succeeds despite the read-only directory)
+        // and triggers the watcher.
+        try Data("- [ ] outside edit\n".utf8).write(to: url)
+        try await waitUntilStorage { external.count == 1 }
+
+        // The read working again says nothing about writes working again.
+        if case .saveFailed = storage.health {} else {
+            Issue.record("expected .saveFailed to persist, got \(storage.health)")
+        }
+        // No .ok after the failure — the only .ok is the registration
+        // delivery that preceded it.
+        let all = changes.all
+        let failIndex = try #require(all.firstIndex {
             if case .saveFailed = $0 {
                 true
             } else {
                 false
             }
-        }
-        let successIndex = all.firstIndex {
-            if case .saveSucceeded = $0 {
-                true
-            } else {
-                false
-            }
-        }
-        #expect(failIndex != nil && successIndex != nil && failIndex! < successIndex!)
+        })
+        #expect(!all[(failIndex + 1)...].contains(.ok))
+    }
+
+    @Test func deletingUnreadableFileRestoresHealthAndSaves() async throws {
+        let url = temporaryFileURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data([0xFF, 0xFE, 0x00]).write(to: url)
+
+        let storage = FileStorage(fileURL: url)
+        let changes = HealthBox()
+        storage.setOnHealthChange { changes.append($0) }
+        let external = Box()
+        storage.setOnExternalChange { external.append($0) }
+        _ = storage.load()
+        #expect(storage.health == .unreadable)
+
+        // The natural remedy for a corrupt file: delete it and start over.
+        try FileManager.default.removeItem(at: url)
+        try await waitUntilStorage { external.count == 1 }
+        #expect(external.last?.items.isEmpty == true)
+        try await waitUntilStorage { changes.all == [.ok, .unreadable, .ok] }
+
+        // Saves must resume, not stay suspended forever.
+        var document = MarkdownDocument()
+        document.append(Item(text: "fresh start"))
+        storage.saveNow(document)
+        #expect(FileStorage(fileURL: url).load().items.map(\.text) == ["fresh start"])
+    }
+
+    @Test func registrationDeliversCurrentHealth() async throws {
+        let url = temporaryFileURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data([0xFF, 0xFE, 0x00]).write(to: url)
+
+        let storage = FileStorage(fileURL: url)
+        _ = storage.load()
+
+        // Wiring after the transition still surfaces it: registration
+        // delivers the current value, so no consumer-side initial read
+        // exists to race the wiring.
+        let changes = HealthBox()
+        storage.setOnHealthChange { changes.append($0) }
+        try await waitUntilStorage { changes.all == [.unreadable] }
+        // Settle, then re-assert: "once" is part of the contract, and the
+        // wait alone would miss a duplicate delivery arriving late.
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(changes.all == [.unreadable])
+        #expect(storage.health == .unreadable)
     }
 
     @Test func suspensionClearsWhenFileBecomesReadable() async throws {
@@ -233,17 +358,20 @@ struct FileStorageTests {
         try Data([0xFF, 0xFE, 0x00]).write(to: url)
 
         let storage = FileStorage(fileURL: url)
+        let changes = HealthBox()
+        storage.setOnHealthChange { changes.append($0) }
         _ = storage.load()
-        #expect(storage.savesSuspended)
+        #expect(storage.health == .unreadable)
 
         // External repair: valid content replaces the unreadable bytes.
         try Data("- [ ] repaired\n".utf8).write(to: url, options: .atomic)
 
         let deadline = ContinuousClock.now + .seconds(2)
-        while storage.savesSuspended, ContinuousClock.now < deadline {
+        while storage.health == .unreadable, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(!storage.savesSuspended)
+        #expect(storage.health != .unreadable)
+        try await waitUntilStorage { changes.all == [.ok, .unreadable, .ok] }
 
         // Saves work again after recovery.
         var document = MarkdownDocument()
@@ -336,17 +464,17 @@ private final class Box: @unchecked Sendable {
     }
 }
 
-/// Thread-safe accumulator for storage events.
-private final class EventBox: @unchecked Sendable {
+/// Thread-safe accumulator for health changes.
+private final class HealthBox: @unchecked Sendable {
     private let lock = NSLock()
-    private var events: [FileStorage.StorageEvent] = []
+    private var values: [FileStorage.Health] = []
 
-    func append(_ event: FileStorage.StorageEvent) {
-        lock.withLock { events.append(event) }
+    func append(_ value: FileStorage.Health) {
+        lock.withLock { values.append(value) }
     }
 
-    var all: [FileStorage.StorageEvent] {
-        lock.withLock { events }
+    var all: [FileStorage.Health] {
+        lock.withLock { values }
     }
 }
 
