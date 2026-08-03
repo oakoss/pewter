@@ -54,6 +54,7 @@ struct ShortcutGuideView: View {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Keyboard Shortcuts")
                     .font(.headline)
+                    .accessibilityAddTraits(.isHeader)
                 Text(captureHint + " — from any app.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -68,6 +69,7 @@ struct ShortcutGuideView: View {
                                 .foregroundStyle(.secondary)
                                 .gridCellColumns(2)
                                 .padding(.top, 10)
+                                .accessibilityAddTraits(.isHeader)
                         }
                         ForEach(group.entries, id: \.keys) { entry in
                             GridRow {
@@ -94,8 +96,11 @@ struct ShortcutGuideView: View {
                                 // (the action label stays its own): VoiceOver
                                 // would otherwise announce each cap by
                                 // Unicode name ("place of interest sign"
-                                // for ⌘).
+                                // for ⌘). The text trait gives the collapsed
+                                // element a role; roleless elements expose as
+                                // AXUnknown, which VoiceOver reads as empty.
                                 .accessibilityElement(children: .ignore)
+                                .accessibilityAddTraits(.isStaticText)
                                 .accessibilityLabel(Self.spokenLabel(for: entry.keys))
                                 Text(entry.action)
                                     .font(.callout)
@@ -107,6 +112,7 @@ struct ShortcutGuideView: View {
                 Text("Esc or ⌘/ closes this guide.")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+                    .accessibilityLabel("Escape or \(Self.spokenLabel(for: "⌘/")) closes this guide.")
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -114,6 +120,13 @@ struct ShortcutGuideView: View {
         .background(.regularMaterial)
         .contentShape(Rectangle())
         .onTapGesture { onDismiss() }
-        .accessibilityAddTraits(.isModal)
+        // Contain, then label: without an explicit container element the
+        // label can propagate onto the content and mask its text; the
+        // label keeps VoiceOver from announcing a bare "scroll area". No
+        // modal trait — on the container it blocks VoiceOver from
+        // interacting with the content; the panel hides its own content
+        // while the guide is up instead.
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Keyboard shortcuts")
     }
 }
