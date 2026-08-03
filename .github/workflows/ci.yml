@@ -69,10 +69,14 @@ jobs:
   copilot-review:
     name: Copilot review posted
     runs-on: ubuntu-latest
-    # The polling script self-limits at ~10.5 minutes; this is the backstop
+    # The polling script self-limits at ~15.75 minutes; this is the backstop
     # with enough margin that slow API calls still reach the script's own
-    # clearer failure message.
-    timeout-minutes: 15
+    # clearer failure message. Polling is deliberate: Copilot's review fires
+    # no pull_request_review our workflows can run on, and the workflow_run
+    # its internal run does emit arrives as action_required — the approve
+    # API refuses it, and the skip-approval setting covers the coding agent
+    # only (verified 2026-08-03, pw-mf5).
+    timeout-minutes: 20
     permissions:
       pull-requests: read
     steps:
@@ -89,7 +93,7 @@ jobs:
           # patterns are quoted — unquoted, [bot] is a bracket expression.
           if [ -z "$PR" ] || [ "$DRAFT" = "true" ]; then exit 0; fi
           case "$AUTHOR" in 'renovate[bot]'|'dependabot[bot]') exit 0 ;; esac
-          for _ in $(seq 1 40); do
+          for _ in $(seq 1 60); do
             # The review must be for the current head — a stale review from
             # an earlier push must not satisfy the gate. Paginated because
             # review_on_push accumulates one review per push, oldest first.
@@ -104,7 +108,7 @@ jobs:
             if [ "${count:-0}" -gt 0 ]; then exit 0; fi
             sleep 15
           done
-          echo "No Copilot review after 10 minutes; re-run this job once it posts"
+          echo "No Copilot review after 15 minutes; re-run this job once it posts"
           exit 1
 
   # Fan-in gate: the one required status check, so the branch ruleset never
