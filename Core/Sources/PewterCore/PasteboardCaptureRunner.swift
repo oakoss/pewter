@@ -104,6 +104,10 @@ public final class CopyOnSelectSources {
 public enum PasteboardCaptureRunner {
     private static let logger = Logger.capture
 
+    /// Assumes an uncancelled task: the surface's waits swallow
+    /// `CancellationError`, so a cancelled caller would get zero-duration
+    /// sleeps — a busy-spun modifier wait and a poll window that closes
+    /// before the target app can respond — not a clean abort.
     @MainActor
     public static func run(
         on surface: some PasteboardCaptureSurface,
@@ -125,7 +129,6 @@ public enum PasteboardCaptureRunner {
         }
 
         await surface.awaitSynthesisReady()
-        guard !Task.isCancelled else { return .failed }
 
         // Bound after the wait, immediately before synthesis: the HID copy
         // lands in whatever is frontmost NOW, and the retry, the trust
@@ -151,7 +154,6 @@ public enum PasteboardCaptureRunner {
         }
 
         var landedCount = await surface.pollForChange(from: baseline)
-        guard !Task.isCancelled else { return .failed }
 
         // Some GPU terminals ignore synthetic events from the HID tap but
         // accept them delivered directly to their process.
@@ -163,7 +165,6 @@ public enum PasteboardCaptureRunner {
                     return .failed
                 }
                 landedCount = await surface.pollForChange(from: baseline)
-                guard !Task.isCancelled else { return .failed }
             } else {
                 logger.info("HID-tap copy ignored and no frontmost app; skipping postToPid retry")
             }

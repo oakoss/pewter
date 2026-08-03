@@ -69,7 +69,6 @@ struct PasteboardCapture: PasteboardCapturing, PasteboardCaptureSurface {
                 break
             }
             try? await Task.sleep(for: .milliseconds(15))
-            guard !Task.isCancelled else { return }
         }
         if !CGEventSource.flagsState(.combinedSessionState)
             .intersection([.maskShift, .maskControl, .maskAlternate]).isEmpty
@@ -174,9 +173,6 @@ struct PasteboardCapture: PasteboardCapturing, PasteboardCaptureSurface {
         let pasteboard = NSPasteboard.general
         for _ in 0 ..< 15 {
             try? await Task.sleep(for: .milliseconds(20))
-            if Task.isCancelled {
-                return nil
-            }
             if pasteboard.changeCount != baseline {
                 return pasteboard.changeCount
             }

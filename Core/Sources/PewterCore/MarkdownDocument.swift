@@ -335,20 +335,13 @@ public struct MarkdownDocument: Equatable, Sendable {
     }
 
     private static func serialize(_ item: Item) -> String {
-        let checkbox = item.done ? "- [x]" : "- [ ]"
         let meta = "<!--sl id=\(item.id.uuidString.lowercased()) created=\(formatDate(item.createdAt))-->"
-
-        var textLines = item.text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        let first = textLines.isEmpty ? "" : textLines.removeFirst()
-
-        var result = "\(checkbox) \(first) \(meta)"
-        for continuation in textLines {
-            // Blank interior lines serialize with no indentation — trailing
-            // whitespace would be stripped by most external editors, which
-            // used to fragment the item on reload.
-            result += continuation.isEmpty ? "\n" : "\n  " + continuation
-        }
-        return result
+        return ItemFormatter.entry(
+            marker: ItemFormatter.taskMarker(done: item.done),
+            text: item.text,
+            indent: "  ",
+            firstLineSuffix: " " + meta
+        )
     }
 
     static func formatDate(_ date: Date) -> String {

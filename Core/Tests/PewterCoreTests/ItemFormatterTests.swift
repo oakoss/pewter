@@ -32,6 +32,12 @@ struct ItemFormatterTests {
         #expect(ItemFormatter.listText(items, style: .bulleted) == "- first\n  continued\n- second")
     }
 
+    @Test func blankInteriorLinesStayEmptyInLists() {
+        // Indenting a blank line would put trailing whitespace on it.
+        let items = [Item(text: "para one\n\npara two")]
+        #expect(ItemFormatter.listText(items, style: .bulleted) == "- para one\n\n  para two")
+    }
+
     @Test func taskListCarriesDoneStateAndTwoSpaceIndent() {
         let items = [
             Item(text: "first\ncontinued"),
