@@ -65,6 +65,11 @@ struct PanelRootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.15), value: uiState.toast)
+        // Hidden, not modal-fenced: the guide sits in an overlay, so the
+        // panel content stays in the accessibility tree beneath it and
+        // VoiceOver could wander behind the guide. Applied before the
+        // overlay so the guide itself stays exposed.
+        .accessibilityHidden(showsShortcutGuide)
         .overlay {
             if showsShortcutGuide {
                 ShortcutGuideView(captureHint: uiState.captureHint) {

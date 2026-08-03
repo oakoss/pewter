@@ -505,6 +505,15 @@ an AX answer delivers plain text that passes through untouched.
       announcement when the flash carried it)
 - [ ] Panel-only toasts (e.g. a shortcut arming failure at launch) are
       announced
+- [ ] Open the guide (⌘/) with VO running → it announces as "Keyboard
+      shortcuts" and VO-arrow drills into the content: title, capture
+      hint, group headers (reachable via the rotor's headings list), and
+      each shortcut's keys spoken as names ("Shift Command Z"), not
+      Unicode symbols, ending on the footer read as "Escape or Command
+      slash closes this guide."
+- [ ] With the guide open, the notes list, search, and quick-add are not
+      reachable by VO (the panel hides its content from the accessibility
+      tree while the guide is up)
 
 ## Redo (Shift-Cmd-Z)
 
