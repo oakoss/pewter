@@ -110,6 +110,19 @@ struct MarkdownDocumentTests {
         #expect(document.items[0].id.uuidString.lowercased() == "8f3a1b2c-4d5e-6f70-8192-a3b4c5d6e7f8")
     }
 
+    @Test func emptyItemSerializesButDropsOnReload() {
+        // Deliberate lossiness: the marker line (double space before the
+        // metadata) is written, and reload keeps its bytes without adopting
+        // it as an item.
+        var document = MarkdownDocument()
+        document.append(Item(text: ""))
+
+        let serialized = document.serialized()
+        #expect(serialized.hasPrefix("- [ ]  <!--sl id="))
+        #expect(MarkdownDocument.parse(serialized).items.isEmpty)
+        #expect(MarkdownDocument.parse(serialized).serialized() == serialized)
+    }
+
     @Test func emptyTaskLineIsPreservedButNotAnItem() {
         let document = MarkdownDocument.parse("- [ ] \n- [ ] real\n")
         #expect(document.items.map(\.text) == ["real"])

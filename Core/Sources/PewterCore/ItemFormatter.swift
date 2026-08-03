@@ -21,18 +21,31 @@ public enum ItemFormatter {
             let marker = switch style {
             case .numbered: "\(index + 1). "
             case .bulleted: "- "
-            case .taskList: item.done ? "- [x] " : "- [ ] "
+            case .taskList: taskMarker(done: item.done)
             }
             // Numbered continuations align under the text (the marker widens
             // past 9); the dash styles use markdown's two-space rule, where
-            // brackets are content, not marker. Blank interior lines stay
-            // empty so no line carries trailing whitespace.
+            // brackets are content, not marker.
             let indent = style == .numbered ? String(repeating: " ", count: marker.count) : "  "
-            let lines = item.text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
-            guard let first = lines.first else { return String(marker.dropLast()) }
-            let continuations = lines.dropFirst().map { $0.isEmpty ? "" : indent + $0 }
-            return ([marker + first] + continuations).joined(separator: "\n")
+            return entry(marker: marker, text: item.text, indent: indent)
         }
         .joined(separator: "\n")
+    }
+
+    /// Task-list checkbox marker, trailing space included. Shared with the
+    /// notes-file serializer so the two can't drift apart.
+    static func taskMarker(done: Bool) -> String {
+        done ? "- [x] " : "- [ ] "
+    }
+
+    /// One list entry: marker + first text line (plus `firstLineSuffix`),
+    /// continuations under `indent`. Blank interior lines stay empty —
+    /// indentation there is trailing whitespace, which external editors
+    /// strip, and that used to fragment multi-paragraph items on reload.
+    static func entry(marker: String, text: String, indent: String, firstLineSuffix: String = "") -> String {
+        let lines = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+        let first = lines.first.map(String.init) ?? ""
+        let continuations = lines.dropFirst().map { $0.isEmpty ? "" : indent + $0 }
+        return ([marker + first + firstLineSuffix] + continuations).joined(separator: "\n")
     }
 }
