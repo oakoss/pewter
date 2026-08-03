@@ -90,6 +90,9 @@ public final class ListStore {
             delete(ids: [id])
             return
         }
+        // Committing an editor untouched is not a mutation — it must not
+        // fork history or schedule a save.
+        guard updated.text != item.text else { return }
         document.update(updated)
         invalidateRedo()
         persist()

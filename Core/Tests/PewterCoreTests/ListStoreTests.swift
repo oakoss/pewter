@@ -220,6 +220,19 @@ struct ListStoreTests {
         #expect(store.redo() == nil)
     }
 
+    @Test func unchangedEditKeepsRedo() throws {
+        // Committing an editor without changes is not a mutation.
+        let store = ListStore()
+        let keeper = try #require(store.add(text: "keeper"))
+        let victim = try #require(store.add(text: "victim"))
+        store.delete(ids: [victim.id])
+        _ = store.undoDelete()
+
+        store.updateText(id: keeper.id, text: "keeper")
+
+        #expect(try #require(store.redo()).removed.map(\.id) == [victim.id])
+    }
+
     @Test func mergeClearsRedo() throws {
         let store = ListStore()
         let a = try #require(store.add(text: "a"))
