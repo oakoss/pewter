@@ -42,7 +42,7 @@ struct ShortcutGuideView: View {
         "␣": "Space", "↩": "Return", "↑": "Up Arrow", "↓": "Down Arrow",
     ]
 
-    static func spokenLabel(for keys: String) -> String {
+    private static func spokenLabel(for keys: String) -> String {
         keys.map { key in
             key == " " ? "or" : (Self.spokenKeys[key] ?? String(key))
         }
@@ -90,9 +90,11 @@ struct ShortcutGuideView: View {
                                         }
                                     }
                                 }
-                                // One spoken element per row: VoiceOver would
-                                // otherwise announce each cap by Unicode name
-                                // ("place of interest sign" for ⌘).
+                                // The caps collapse into one spoken element
+                                // (the action label stays its own): VoiceOver
+                                // would otherwise announce each cap by
+                                // Unicode name ("place of interest sign"
+                                // for ⌘).
                                 .accessibilityElement(children: .ignore)
                                 .accessibilityLabel(Self.spokenLabel(for: entry.keys))
                                 Text(entry.action)
