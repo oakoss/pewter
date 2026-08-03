@@ -13,6 +13,7 @@ struct PanelRootView: View {
     /// end up off-screen; scrolling back to it keeps the user's place.
     @State private var collapseScrollTarget: UUID?
     @State private var editingID: UUID?
+    @State private var showsShortcutGuide = false
     @FocusState private var focus: Field?
 
     enum Field: Hashable {
@@ -64,24 +65,44 @@ struct PanelRootView: View {
             }
         }
         .animation(.easeInOut(duration: 0.15), value: uiState.toast)
+        .overlay {
+            if showsShortcutGuide {
+                ShortcutGuideView(captureHint: uiState.captureHint) {
+                    showsShortcutGuide = false
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.15), value: showsShortcutGuide)
         .frame(minWidth: 320, idealWidth: 360, minHeight: 360, idealHeight: 480)
         .background(.ultraThinMaterial)
         .onKeyPress(keys: [.upArrow, .downArrow], phases: .down) { press in
-            moveSelection(
+            // Every list shortcut is swallowed (.handled, not .ignored)
+            // while the guide covers the list — .ignored would let the key
+            // fall through to the scroll view or list behind the overlay.
+            // The guide never coexists with a focused text field (the ⌘/
+            // gate below), so swallowing can't eat field input. ⌘W, Esc,
+            // and ⌘/ stay live.
+            guard !showsShortcutGuide else { return .handled }
+            return moveSelection(
                 press.key == .upArrow ? -1 : 1,
                 extending: press.modifiers.contains(.shift)
             )
         }
-        .onKeyPress(.space) { toggleSelected() }
-        .onKeyPress(.return) { editSelected() }
-        .onKeyPress(keys: [.delete, .deleteForward], phases: .down) { _ in deleteSelected() }
+        .onKeyPress(.space) { showsShortcutGuide ? .handled : toggleSelected() }
+        .onKeyPress(.return) { showsShortcutGuide ? .handled : editSelected() }
+        .onKeyPress(keys: [.delete, .deleteForward], phases: .down) { _ in
+            showsShortcutGuide ? .handled : deleteSelected()
+        }
         .onKeyPress(keys: ["c", "C"], phases: .down) { press in
+            guard !showsShortcutGuide else { return .handled }
             guard press.modifiers.contains(.command) else { return .ignored }
             return press.modifiers.contains(.shift) ? copyList() : copySelected()
         }
         .onKeyPress(keys: ["a", "A"], phases: .down) { press in
             // The focus guard keeps Cmd+A in a text field meaning
             // "select the text", regardless of who consumes the key first.
+            guard !showsShortcutGuide else { return .handled }
             guard press.modifiers.contains(.command),
                   focus == .list || focus == nil,
                   !visibleItems.isEmpty else { return .ignored }
@@ -92,6 +113,7 @@ struct PanelRootView: View {
             // Cmd+Z undoes, Shift-Cmd-Z redoes; other modified combos
             // (Cmd-Opt-Z) stay unclaimed. Same focus rule as Cmd+A: in a
             // text field the key keeps its field meaning.
+            guard !showsShortcutGuide else { return .handled }
             guard press.modifiers.contains(.command),
                   press.modifiers.isDisjoint(with: [.option, .control]),
                   focus == .list || focus == nil else { return .ignored }
@@ -100,6 +122,7 @@ struct PanelRootView: View {
         .onKeyPress(keys: ["m", "M"], phases: .down) { press in
             // Same focus rule as Cmd+A: in a text field the key keeps its
             // field meaning.
+            guard !showsShortcutGuide else { return .handled }
             guard press.modifiers.contains(.command), press.modifiers.contains(.shift),
                   press.modifiers.isDisjoint(with: [.option, .control]),
                   focus == .list || focus == nil else { return .ignored }
@@ -108,6 +131,7 @@ struct PanelRootView: View {
         .onKeyPress(keys: ["e", "E"], phases: .down) { press in
             // Same focus rule as Cmd+A: in a text field Cmd+E keeps its
             // field meaning (use selection for find).
+            guard !showsShortcutGuide else { return .handled }
             guard press.modifiers.contains(.command),
                   press.modifiers.isDisjoint(with: [.shift, .option, .control]),
                   focus == .list || focus == nil,
@@ -116,6 +140,7 @@ struct PanelRootView: View {
             return .handled
         }
         .onKeyPress(keys: ["f", "F"], phases: .down) { press in
+            guard !showsShortcutGuide else { return .handled }
             guard press.modifiers.contains(.command),
                   press.modifiers.isDisjoint(with: [.shift, .option, .control]) else { return .ignored }
             focus = .search
@@ -126,10 +151,22 @@ struct PanelRootView: View {
             // including mid-edit — is the point of the shortcut. The filter
             // clears too, or the "searched, didn't find it, now add it"
             // gesture would file the new note invisibly behind the query.
+            guard !showsShortcutGuide else { return .handled }
             guard press.modifiers.contains(.command),
                   press.modifiers.isDisjoint(with: [.shift, .option, .control]) else { return .ignored }
             focus = .quickAdd
             uiState.query = ""
+            return .handled
+        }
+        .onKeyPress(keys: ["/", "?"], phases: .down) { press in
+            // ⌘/ (and ⇧⌘/, which can arrive as ⌘?) toggles the guide, but
+            // only from the list: a focused text field would keep receiving
+            // plain typing behind the overlay, so the guide is never allowed
+            // to cover one.
+            guard press.modifiers.contains(.command),
+                  press.modifiers.isDisjoint(with: [.option, .control]),
+                  focus == .list || focus == nil else { return .ignored }
+            showsShortcutGuide.toggle()
             return .handled
         }
         .onKeyPress(keys: ["w", "W"], phases: .down) { press in
@@ -137,8 +174,10 @@ struct PanelRootView: View {
                   press.modifiers.isDisjoint(with: [.shift, .option, .control]) else { return .ignored }
             // Cancel an in-progress edit explicitly — the discard must not
             // depend on resign-key timing, and the panel survives hidden.
-            // Focus moves off the removed editor for the same reason.
+            // Focus moves off the removed editor for the same reason, and
+            // the guide comes down too or the next summon reopens covered.
             editingID = nil
+            showsShortcutGuide = false
             if focus == .editor {
                 focus = .list
             }
@@ -146,10 +185,15 @@ struct PanelRootView: View {
             return .handled
         }
         .onKeyPress(.escape) {
-            // Ladder: drop a multi-selection, then the filter; otherwise fall
-            // through to the panel's cancelOperation (hides it). A single
-            // selection doesn't count — quick-add selects what it added, and
-            // capture-then-Esc must still hide the panel in one press.
+            // Ladder: close the guide, then drop a multi-selection, then the
+            // filter; otherwise fall through to the panel's cancelOperation
+            // (hides it). A single selection doesn't count — quick-add
+            // selects what it added, and capture-then-Esc must still hide
+            // the panel in one press.
+            if showsShortcutGuide {
+                showsShortcutGuide = false
+                return .handled
+            }
             if selection.isMultiple {
                 selection.clear()
                 return .handled
