@@ -16,6 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsController: SettingsWindowController?
     private var hotKeyCoordinator: HotKeyCoordinator?
     private var clipboardTracker: ClipboardActivityTracker?
+    private var captureHUD: CaptureHUDController?
     private let uiState = PanelUIState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -91,6 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         coordinator.onOutcome = { [weak self] outcome in
             self?.handleCapture(outcome)
         }
+        captureHUD = CaptureHUDController()
 
         let tapMonitor = ModifierTapMonitor()
         self.tapMonitor = tapMonitor
@@ -235,26 +237,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleCapture(_ outcome: CaptureCoordinator.Outcome) {
         switch outcome {
         case let .captured(item):
-            // An active filter would hide the new item and the capture would
-            // read as failed.
-            uiState.query = ""
-            // Capture is a keyboard summon from wherever the user works —
-            // its feedback must appear on the screen they're looking at.
-            panelController?.show(relativeTo: statusItemController?.button, onActiveScreen: true)
-            uiState.highlight(item.id)
-            statusItemController?.flash(symbolName: "checkmark.circle", description: "Captured")
+            if panelController?.isVisible == true {
+                // An active filter would hide the new item and the capture
+                // would read as failed. A hidden panel keeps its filter —
+                // the HUD already confirmed the capture.
+                uiState.query = ""
+                uiState.highlight(item.id)
+            }
+            showCaptureFeedback(.captured)
         case .nothingSelected:
-            statusItemController?.flash(symbolName: "xmark.circle", description: "Nothing selected")
-            if panelController?.isVisible == true {
-                uiState.showToast("No text selected")
-            }
+            showCaptureFeedback(.nothingSelected)
         case .captureFailed:
-            statusItemController?.flash(symbolName: "exclamationmark.circle", description: "Capture failed")
-            if panelController?.isVisible == true {
-                uiState.showToast("Couldn't capture — try copying manually")
-            }
+            showCaptureFeedback(.captureFailed)
         case .notPermitted:
             onboarding?.showIfNeeded()
         }
+    }
+
+    /// One Feedback value drives both surfaces — the HUD at the point of
+    /// capture and the status-item flash VoiceOver reads — so a sighted user
+    /// and a VoiceOver user never get different stories.
+    private func showCaptureFeedback(_ feedback: CaptureHUDController.Feedback) {
+        captureHUD?.show(feedback)
+        statusItemController?.flash(
+            symbolName: feedback.symbolName,
+            description: feedback.message,
+            duration: feedback.duration
+        )
     }
 }
