@@ -312,7 +312,8 @@ struct PanelRootView: View {
                                 onMenuToggle: { toggleDone(targets(for: item)) },
                                 canMerge: selection.isMultiple && isRowSelected,
                                 onMenuMerge: { _ = mergeSelected() },
-                                onDelete: { delete(ids: Set(targets(for: item).map(\.id))) }
+                                onDelete: { delete(ids: [item.id]) },
+                                onMenuDelete: { delete(ids: Set(targets(for: item).map(\.id))) }
                             )
                             .id(item.id)
                         }

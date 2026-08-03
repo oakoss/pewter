@@ -1,3 +1,4 @@
+import Accessibility
 import Foundation
 import Observation
 
@@ -45,8 +46,14 @@ final class PanelUIState {
         return scrollTargetID
     }
 
-    func showToast(_ message: String, for duration: Duration = .seconds(2)) {
+    /// `announces: false` is for callers that already announced the same
+    /// message on another surface (the status-item flash) — one outcome
+    /// must not be spoken twice.
+    func showToast(_ message: String, for duration: Duration = .seconds(2), announces: Bool = true) {
         toast = message
+        if announces {
+            AccessibilityNotification.Announcement(message).post()
+        }
         toastTask?.cancel()
         toastTask = Task { [weak self] in
             try? await Task.sleep(for: duration)
