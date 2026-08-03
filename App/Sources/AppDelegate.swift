@@ -179,6 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         permission.onGranted = { [weak self] in
             self?.hotKeyCoordinator?.syncTriggers()
             self?.uiState.showsPermissionBanner = false
+            self?.onboarding?.clearDeclined()
         }
         permission.onRevoked = { [weak self] in
             self?.hotKeyCoordinator?.syncTriggers()
@@ -186,9 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         toastArmingFailures(hotKeyCoordinator.syncTriggers())
-        if !permission.isTrusted {
-            onboarding.showIfNeeded()
-        }
+        onboarding.showAtLaunchIfNeeded()
     }
 
     /// Launch-time arming is the only toast path — everywhere else a

@@ -6,16 +6,28 @@ or the status item / panel / window layer.
 
 ## Permissions
 
-- [ ] `tccutil reset Accessibility com.oakoss.Pewter`, launch → onboarding
-      window appears
+- [ ] `tccutil reset Accessibility com.oakoss.Pewter` and
+      `defaults delete com.oakoss.Pewter onboardingDeclined`, launch →
+      onboarding window appears
 - [ ] Grant access in System Settings → within a second or two the banner
       clears and onboarding flips to "You're all set", **without relaunching**
 - [ ] With access still missing, panel works: add, check, search, copy — and
       shows the orange capture banner
 - [ ] Revoke access while the app runs → within ~5 s the banner reappears and
       double-shift stops responding; re-grant → capture works again
-- [ ] Dismiss onboarding with "Later" → status item right-click →
-      Permissions… reopens it (shows "You're all set" when already trusted)
+- [ ] Dismiss onboarding with "Later" (or the close button) → status item
+      right-click → Permissions… reopens it (shows "You're all set" when
+      already trusted)
+- [ ] Dismiss with "Later" (or the close button) while untrusted → relaunch →
+      onboarding does NOT reappear; the orange banner still shows, its
+      Enable… button reopens onboarding, and so does a capture attempt
+      (double-shift)
+- [ ] Grant access, then revoke it → next launch shows onboarding once again
+      (granting clears the recorded decline; test both ways — grant while
+      Pewter is running, and grant from System Settings while it's quit,
+      before revoking)
+- [ ] Launch untrusted with no decline recorded, Cmd+Q with onboarding still
+      open → relaunch → onboarding appears again (quitting is not a decline)
 - [ ] Onboarding's "Open System Settings" lands on Privacy & Security →
       Accessibility (the deep link uses a legacy settings anchor — re-verify
       on each new macOS major)

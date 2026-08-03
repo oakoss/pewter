@@ -4,12 +4,29 @@ import SwiftUI
 /// Shown when Accessibility isn't granted yet. This is a normal activating
 /// window (unlike the panel) so it lands in front of the user.
 @MainActor
-final class OnboardingWindowController {
+final class OnboardingWindowController: NSObject {
+    private static let declinedKey = "onboardingDeclined"
+
     private var window: NSWindow?
     private let permission: AccessibilityPermission
 
     init(permission: AccessibilityPermission) {
         self.permission = permission
+    }
+
+    /// Launch-time variant: a recorded decline suppresses the window, so an
+    /// untrusted user who dismissed it once isn't re-prompted every launch —
+    /// the panel banner and a capture attempt remain the recovery paths.
+    func showAtLaunchIfNeeded() {
+        guard !permission.isTrusted else {
+            // A grant made while the app wasn't running never fires
+            // onGranted; clearing here keeps a later revocation's fresh
+            // prompt working.
+            clearDeclined()
+            return
+        }
+        guard !UserDefaults.standard.bool(forKey: Self.declinedKey) else { return }
+        show()
     }
 
     func showIfNeeded() {
@@ -36,6 +53,7 @@ final class OnboardingWindowController {
                 }
             )
             window.center()
+            window.delegate = self
             self.window = window
         }
         window?.makeKeyAndOrderFront(nil)
@@ -43,7 +61,31 @@ final class OnboardingWindowController {
     }
 
     func close() {
+        recordDeclineIfUntrusted()
         window?.orderOut(nil)
+    }
+
+    /// Granting resets the ledger — a later revocation is a new state and
+    /// earns one fresh launch prompt.
+    func clearDeclined() {
+        UserDefaults.standard.removeObject(forKey: Self.declinedKey)
+    }
+
+    /// Any dismissal while still untrusted counts as the decline — "Later"
+    /// and the title-bar close button carry the same intent.
+    private func recordDeclineIfUntrusted() {
+        guard !permission.isTrusted else { return }
+        UserDefaults.standard.set(true, forKey: Self.declinedKey)
+    }
+}
+
+extension OnboardingWindowController: NSWindowDelegate {
+    /// Only performClose — the title-bar button or ⌘W — consults this, so
+    /// a decline recorded here is always user intent; app-termination
+    /// teardown never asks.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        recordDeclineIfUntrusted()
+        return true
     }
 }
 
