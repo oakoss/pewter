@@ -89,13 +89,13 @@ struct PanelRootView: View {
             return .handled
         }
         .onKeyPress(keys: ["z", "Z"], phases: .down) { press in
-            // Plain Cmd+Z only — modified combos (Shift-Cmd-Z redo,
-            // Cmd-Opt-Z) stay unclaimed. Same focus rule as Cmd+A: in a
+            // Cmd+Z undoes, Shift-Cmd-Z redoes; other modified combos
+            // (Cmd-Opt-Z) stay unclaimed. Same focus rule as Cmd+A: in a
             // text field the key keeps its field meaning.
             guard press.modifiers.contains(.command),
-                  press.modifiers.isDisjoint(with: [.shift, .option, .control]),
+                  press.modifiers.isDisjoint(with: [.option, .control]),
                   focus == .list || focus == nil else { return .ignored }
-            return undoDelete()
+            return press.modifiers.contains(.shift) ? redoDelete() : undoDelete()
         }
         .onKeyPress(keys: ["m", "M"], phases: .down) { press in
             // Same focus rule as Cmd+A: in a text field the key keeps its
@@ -481,6 +481,23 @@ struct PanelRootView: View {
         if let first = restored.first {
             uiState.highlight(first.id)
             uiState.requestScroll(to: first.id)
+        }
+        return .handled
+    }
+
+    private func redoDelete() -> KeyPress.Result {
+        guard let result = store.redo() else { return .ignored }
+        if let product = result.mergedProduct {
+            // A merge redo re-creates its product — select and reveal it,
+            // same feedback shape as undo's restored notes.
+            selection.replace(with: [product.id], order: visibleOrder)
+            focus = .list
+            uiState.highlight(product.id)
+            uiState.requestScroll(to: product.id)
+        } else {
+            // A delete redo only removes; drop the vanished ids so the
+            // selection can't point at notes that no longer exist.
+            selection.prune(order: visibleOrder)
         }
         return .handled
     }

@@ -452,6 +452,26 @@ an AX answer delivers plain text that passes through untouched.
 - [ ] Delete a note, then edit the notes file in another editor → Cmd+Z does
       nothing (an external edit clears the undo history)
 
+## Redo (Shift-Cmd-Z)
+
+- [ ] Delete a multi-selection, Cmd+Z, Shift-Cmd-Z → all the notes vanish
+      again and the selection drops every one of them
+- [ ] Merge two notes, Cmd+Z, Shift-Cmd-Z → the merged note reappears,
+      selected, briefly highlighted, and scrolled into view
+- [ ] Delete, Cmd+Z, Shift-Cmd-Z, Cmd+Z → the note is back (redo is itself
+      undoable)
+- [ ] Delete, Cmd+Z, then add a note (or toggle one done) → Shift-Cmd-Z
+      does nothing (a fresh change forks history and clears redo)
+- [ ] Shift-Cmd-Z while the search or quick-add field is focused does not
+      re-delete (the key keeps its text-field meaning)
+- [ ] Shift-Cmd-Z while editing a note's text redoes the text edit, never a
+      note re-delete (editor focus keeps the key)
+- [ ] Merge, Cmd+Z, type a filter that hides the would-be product, click
+      the list, Shift-Cmd-Z → the merge re-applies in the file but stays
+      hidden; clearing the filter shows the merged note unselected
+- [ ] Cmd-Opt-Z and Cmd-Opt-Shift-Z stay unclaimed by the panel (no note
+      restore or re-delete)
+
 ## Storage
 
 - [ ] `cat ~/Library/Application\ Support/Pewter/pewter.md` is readable

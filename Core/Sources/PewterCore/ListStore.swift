@@ -15,14 +15,16 @@ public final class ListStore {
     private let storage: FileStorage?
 
     /// One undoable mutation: the lines it removed, plus any line it
-    /// inserted (merge). Undo removes the inserted ids first, then
-    /// re-inserts the removals at their recorded indices.
+    /// inserted (merge), each with its recorded index. Undo removes the
+    /// inserted lines first, then re-inserts the removals; redo replays
+    /// the mutation from the same records in the opposite order.
     private struct UndoBatch {
         var removed: [MarkdownDocument.RemovedItem]
-        var insertedIDs: Set<UUID> = []
+        var inserted: [MarkdownDocument.RemovedItem] = []
     }
 
     private var deletedBatches: [UndoBatch] = []
+    private var redoBatches: [UndoBatch] = []
     private static let undoDepth = 10
 
     public var items: [Item] {
@@ -54,15 +56,17 @@ public final class ListStore {
 
     /// Replaces the document with an externally-edited one. External wins
     /// over any local edit that raced it — its scheduled save must not fire —
-    /// and undo history is cleared: the recorded positions describe a
+    /// and undo/redo history is cleared: the recorded positions describe a
     /// document that no longer exists.
     public func applyExternalChange(_ newDocument: MarkdownDocument) {
         storage?.cancelPendingSave()
         let before = document.items.count
         let after = newDocument.items.count
-        Logger.storage.info("external edit replaced the document: \(before) → \(after) notes; undo history cleared")
+        Logger.storage
+            .info("external edit replaced the document: \(before) → \(after) notes; undo/redo history cleared")
         document = newDocument
         deletedBatches.removeAll()
+        redoBatches.removeAll()
     }
 
     @discardableResult
@@ -71,6 +75,7 @@ public final class ListStore {
         guard !trimmed.isEmpty else { return nil }
         let item = Item(text: trimmed)
         document.append(item)
+        invalidateRedo()
         persist()
         return item
     }
@@ -85,7 +90,11 @@ public final class ListStore {
             delete(ids: [id])
             return
         }
+        // Committing an editor untouched is not a mutation — it must not
+        // fork history or schedule a save.
+        guard updated.text != item.text else { return }
         document.update(updated)
+        invalidateRedo()
         persist()
     }
 
@@ -94,6 +103,7 @@ public final class ListStore {
         guard !removed.isEmpty else { return }
         Self.logger.info("deleted \(removed.count) notes")
         recordUndo(UndoBatch(removed: removed))
+        invalidateRedo()
         persist()
     }
 
@@ -118,7 +128,11 @@ public final class ListStore {
         guard let index = removed.first?.index else { return nil }
         document.insert(merged, at: index)
         Self.logger.info("merged \(sources.count) notes into one")
-        recordUndo(UndoBatch(removed: removed, insertedIDs: [merged.id]))
+        recordUndo(UndoBatch(
+            removed: removed,
+            inserted: [MarkdownDocument.RemovedItem(index: index, item: merged)]
+        ))
+        invalidateRedo()
         persist()
         return merged
     }
@@ -130,31 +144,69 @@ public final class ListStore {
         }
     }
 
+    /// Every fresh mutation forks history: the redo batches describe a
+    /// timeline the user has now diverged from, and replaying one against
+    /// the new document could target wrong lines.
+    private func invalidateRedo() {
+        redoBatches.removeAll()
+    }
+
     /// Restores the most recent batch and returns the restored items, empty
     /// when there is nothing to undo. Recorded indices are always valid:
     /// `lines` shrinks only through `delete(ids:)` and `merge(ids:)` (which
-    /// always record) or `applyExternalChange` (which clears the history),
-    /// later adds only append, LIFO undo replays states in reverse, and the
-    /// depth cap evicts from the oldest end. Removing a merge's inserted
-    /// line first restores the exact line count its indices were recorded
-    /// against.
+    /// always record), `applyExternalChange` (which clears the history), or
+    /// `redo()` (which replays a batch against the exact state it was
+    /// recorded from and re-records it); later adds only append, LIFO undo
+    /// replays states in reverse, and the depth cap evicts from the oldest
+    /// end. Removing a merge's inserted line first restores the exact line
+    /// count its indices were recorded against.
     public func undoDelete() -> [Item] {
         guard let batch = deletedBatches.popLast() else { return [] }
         Self.logger.info("undo restored \(batch.removed.count) notes")
-        if !batch.insertedIDs.isEmpty {
-            _ = document.removeAll(ids: batch.insertedIDs)
+        if !batch.inserted.isEmpty {
+            _ = document.removeAll(ids: Set(batch.inserted.map(\.item.id)))
         }
         // Ascending re-insert mirrors how the removals shifted later lines,
         // so positions and interleaved verbatim lines come back exactly.
         for entry in batch.removed {
             document.insert(entry.item, at: entry.index)
         }
+        redoBatches.append(batch)
         persist()
         return batch.removed.map(\.item)
     }
 
+    /// Outcome of a successful redo: what vanished again and, for a merge,
+    /// the product it re-created.
+    public struct RedoResult: Equatable, Sendable {
+        public let removed: [Item]
+        public let mergedProduct: Item?
+    }
+
+    /// Re-applies the most recently undone batch; nil when there is nothing
+    /// to redo. Valid by construction: only `undoDelete` feeds the redo
+    /// stack, every other mutation clears it, and external changes clear
+    /// both stacks — so at redo time the document is byte-for-byte the
+    /// state the batch was recorded against.
+    public func redo() -> RedoResult? {
+        guard let batch = redoBatches.popLast() else { return nil }
+        Self.logger.info("redo re-removed \(batch.removed.count) notes")
+        _ = document.removeAll(ids: Set(batch.removed.map(\.item.id)))
+        for entry in batch.inserted {
+            document.insert(entry.item, at: entry.index)
+        }
+        // Back onto the undo stack, so Cmd-Z can reverse the redo again.
+        recordUndo(batch)
+        persist()
+        return RedoResult(
+            removed: batch.removed.map(\.item),
+            mergedProduct: batch.inserted.first?.item
+        )
+    }
+
     public func setDone(ids: Set<UUID>, done: Bool) {
         if document.setDone(ids: ids, done: done) {
+            invalidateRedo()
             persist()
         }
     }
