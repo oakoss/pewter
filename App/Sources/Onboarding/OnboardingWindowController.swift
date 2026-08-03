@@ -80,8 +80,12 @@ final class OnboardingWindowController: NSObject {
 }
 
 extension OnboardingWindowController: NSWindowDelegate {
-    func windowWillClose(_ notification: Notification) {
+    /// Only performClose — the title-bar button or ⌘W — consults this, so
+    /// a decline recorded here is always user intent; app-termination
+    /// teardown never asks.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
         recordDeclineIfUntrusted()
+        return true
     }
 }
 
