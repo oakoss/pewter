@@ -92,6 +92,190 @@ struct ListStoreTests {
         #expect(store.document == before)
     }
 
+    @Test func redoReappliesDeleteExactly() throws {
+        let store = ListStore()
+        let a = try #require(store.add(text: "stays"))
+        let b = try #require(store.add(text: "goes"))
+
+        store.delete(ids: [b.id])
+        let afterDelete = store.document
+        _ = store.undoDelete()
+
+        let result = try #require(store.redo())
+        #expect(store.document == afterDelete)
+        #expect(result.removed.map(\.id) == [b.id])
+        #expect(result.mergedProduct == nil)
+        #expect(store.items.map(\.id) == [a.id])
+    }
+
+    @Test func redoReappliesMergeProductExactly() throws {
+        let store = ListStore()
+        let a = try #require(store.add(text: "one"))
+        let b = try #require(store.add(text: "two"))
+
+        let merged = try #require(store.merge(ids: [a.id, b.id]))
+        let afterMerge = store.document
+        _ = store.undoDelete()
+
+        let result = try #require(store.redo())
+        #expect(store.document == afterMerge)
+        #expect(result.mergedProduct == merged)
+        #expect(Set(result.removed.map(\.id)) == Set([a.id, b.id]))
+    }
+
+    @Test func undoRedoUndoRoundTrips() throws {
+        // Redo lands back on the undo stack, so Cmd-Z reverses it again.
+        let store = ListStore()
+        _ = try #require(store.add(text: "keeper"))
+        let victim = try #require(store.add(text: "victim"))
+        let before = store.document
+
+        store.delete(ids: [victim.id])
+        _ = store.undoDelete()
+        _ = store.redo()
+        _ = store.undoDelete()
+
+        #expect(store.document == before)
+    }
+
+    @Test func redoOrderIsLIFOAcrossMergeAndDelete() throws {
+        let store = ListStore()
+        let a = try #require(store.add(text: "a"))
+        let b = try #require(store.add(text: "b"))
+        let c = try #require(store.add(text: "c"))
+
+        _ = try #require(store.merge(ids: [a.id, b.id]))
+        store.delete(ids: [c.id])
+        let afterBoth = store.document
+
+        _ = store.undoDelete()
+        _ = store.undoDelete()
+
+        // Most recently undone replays first: the merge, then the delete.
+        #expect(try #require(store.redo()).mergedProduct?.id == a.id)
+        #expect(try #require(store.redo()).removed.map(\.id) == [c.id])
+        #expect(store.document == afterBoth)
+    }
+
+    @Test func freshMutationClearsRedo() throws {
+        let store = ListStore()
+        let victim = try #require(store.add(text: "victim"))
+        store.delete(ids: [victim.id])
+        _ = store.undoDelete()
+
+        _ = store.add(text: "fork in history")
+
+        #expect(store.redo() == nil)
+        #expect(store.items.map(\.text) == ["victim", "fork in history"])
+    }
+
+    @Test func toggleDoneClearsRedo() throws {
+        let store = ListStore()
+        let keeper = try #require(store.add(text: "keeper"))
+        let victim = try #require(store.add(text: "victim"))
+        store.delete(ids: [victim.id])
+        _ = store.undoDelete()
+
+        store.toggleDone(ids: [keeper.id])
+
+        #expect(store.redo() == nil)
+        #expect(store.items.count == 2)
+    }
+
+    @Test func externalChangeClearsRedo() throws {
+        let store = ListStore()
+        let victim = try #require(store.add(text: "victim"))
+        store.delete(ids: [victim.id])
+        _ = store.undoDelete()
+
+        store.applyExternalChange(MarkdownDocument.parse("- [ ] rewritten outside\n"))
+
+        #expect(store.redo() == nil)
+        #expect(store.items.map(\.text) == ["rewritten outside"])
+    }
+
+    @Test func deleteClearsRedo() throws {
+        // Without the clear, redoing the stale batch would no-op its
+        // removal and a later undo would duplicate the note.
+        let store = ListStore()
+        let a = try #require(store.add(text: "a"))
+        let b = try #require(store.add(text: "b"))
+        store.delete(ids: [a.id])
+        _ = store.undoDelete()
+
+        store.delete(ids: [b.id])
+
+        #expect(store.redo() == nil)
+    }
+
+    @Test func updateTextClearsRedo() throws {
+        let store = ListStore()
+        let keeper = try #require(store.add(text: "keeper"))
+        let victim = try #require(store.add(text: "victim"))
+        store.delete(ids: [victim.id])
+        _ = store.undoDelete()
+
+        store.updateText(id: keeper.id, text: "renamed")
+
+        #expect(store.redo() == nil)
+    }
+
+    @Test func mergeClearsRedo() throws {
+        let store = ListStore()
+        let a = try #require(store.add(text: "a"))
+        let b = try #require(store.add(text: "b"))
+        let victim = try #require(store.add(text: "victim"))
+        store.delete(ids: [victim.id])
+        _ = store.undoDelete()
+
+        _ = try #require(store.merge(ids: [a.id, b.id]))
+
+        #expect(store.redo() == nil)
+    }
+
+    @Test func partialUndoInterleaveKeepsRestoreOrder() throws {
+        // Redo re-appends to the top of the undo stack; a later Cmd-Z must
+        // reverse the redo, not an older delete.
+        let store = ListStore()
+        let a = try #require(store.add(text: "a"))
+        let b = try #require(store.add(text: "b"))
+        let before = store.document
+
+        store.delete(ids: [a.id])
+        store.delete(ids: [b.id])
+        #expect(store.undoDelete().map(\.id) == [b.id])
+        #expect(try #require(store.redo()).removed.map(\.id) == [b.id])
+        #expect(store.undoDelete().map(\.id) == [b.id])
+        #expect(store.undoDelete().map(\.id) == [a.id])
+        #expect(store.document == before)
+    }
+
+    @Test func redoReappliesMergeAcrossHeadingsExactly() throws {
+        // Headings and blanks sit between the sources, so line indices and
+        // item indices diverge and redo's index arithmetic is exercised.
+        let source = """
+        ## A
+        - [ ] first
+        ## B
+        - [ ] second
+        - [ ] third
+        """
+        let store = ListStore(document: MarkdownDocument.parse(source))
+        let first = store.items[0]
+        let third = store.items[2]
+        let before = store.document
+
+        _ = try #require(store.merge(ids: [first.id, third.id]))
+        let afterMerge = store.document
+        _ = store.undoDelete()
+
+        let result = try #require(store.redo())
+        #expect(store.document == afterMerge)
+        #expect(result.mergedProduct?.id == first.id)
+        _ = store.undoDelete()
+        #expect(store.document == before)
+    }
+
     @Test func mergedMultiLineItemRoundTripsThroughSerialization() throws {
         // Whole-second timestamps: ISO8601 metadata drops sub-second
         // precision, so .now would fail the round-trip equality spuriously.
