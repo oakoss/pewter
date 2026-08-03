@@ -6,11 +6,13 @@ struct ItemRow: View {
     let isSelected: Bool
     let isHighlighted: Bool
     let isEditing: Bool
+    let isExpanded: Bool
     /// Whether the context menu's done action marks its targets done (vs not
     /// done) — computed over the whole selection when this row is in it.
     let menuMarksDone: Bool
     var editorFocus: FocusState<PanelRootView.Field?>.Binding
     let onToggle: () -> Void
+    let onToggleExpand: () -> Void
     let onSelect: () -> Void
     let onBeginEdit: () -> Void
     let onCommitEdit: (String) -> Void
@@ -25,6 +27,12 @@ struct ItemRow: View {
 
     @State private var editText = ""
     @State private var isHovering = false
+    @State private var textWidth: CGFloat = 0
+    /// Cached measurement, recomputed only when its explicit inputs (text
+    /// width, note text) change — measuring in body would re-lay-out every
+    /// row on every render, and keying on inputs can't strand a stale
+    /// verdict the way view-layout reporting could.
+    @State private var isTruncated = false
     @State private var showsCopied = false
     @State private var copiedResetTask: Task<Void, Never>?
 
@@ -149,19 +157,70 @@ struct ItemRow: View {
                 }
         } else {
             let rendered = displayText
-            LinkText(attributed: rendered)
-                // A representable exposes no text baseline, so the row's
-                // firstTextBaseline alignment would fall back to an edge and
-                // open a gap above the text; hand it the first line's real
-                // baseline.
-                .alignmentGuide(.firstTextBaseline) { _ in
-                    NSFont.preferredFont(forTextStyle: .body).ascender
+            VStack(alignment: .leading, spacing: 4) {
+                LinkText(attributed: rendered, clamped: !isExpanded)
+                    // A representable exposes no text baseline, so the row's
+                    // firstTextBaseline alignment would fall back to an edge
+                    // and open a gap above the text; hand it the first line's
+                    // real baseline.
+                    .alignmentGuide(.firstTextBaseline) { _ in
+                        NSFont.preferredFont(forTextStyle: .body).ascender
+                    }
+                    // Without this, VoiceOver announces the row's buttons but
+                    // not the note; it must read the rendered string, not raw
+                    // markdown.
+                    .accessibilityLabel(rendered.string)
+                    .help(Text(item.createdAt, format: .dateTime))
+                    .background(
+                        GeometryReader { geometry in
+                            Color.clear
+                                // The explicit recompute covers reappearing
+                                // after an edit: the editor removes this
+                                // branch and its observers, so a committed
+                                // text change arrives with the width — and
+                                // therefore onChange — unchanged.
+                                .onAppear {
+                                    textWidth = geometry.size.width
+                                    updateTruncation()
+                                }
+                                .onChange(of: geometry.size.width) { _, width in
+                                    textWidth = width
+                                }
+                        }
+                    )
+                    .onChange(of: textWidth) { _, _ in updateTruncation() }
+                    .onChange(of: item.text) { _, _ in updateTruncation() }
+                // True while expanded too ("Show less" keeps its place),
+                // false for a short note Cmd+E swept into a selection.
+                if isTruncated {
+                    disclosureButton
                 }
-                // Without this, VoiceOver announces the row's buttons but not
-                // the note; it must read the rendered string, not raw markdown.
-                .accessibilityLabel(rendered.string)
-                .help(Text(item.createdAt, format: .dateTime))
+            }
         }
+    }
+
+    private func updateTruncation() {
+        isTruncated = TextTruncation.clampHidesText(
+            displayText,
+            width: textWidth,
+            lineLimit: LinkTextView.clampLineCount
+        )
+    }
+
+    private var disclosureButton: some View {
+        Button(action: onToggleExpand) {
+            Label(
+                isExpanded ? "Show less" : "Show more",
+                systemImage: isExpanded ? "chevron.up" : "chevron.down"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .pointingHandCursor()
+        // No ⌘E hint: the shortcut acts on the selection, and the chevron's
+        // row isn't necessarily in it.
+        .help(isExpanded ? "Collapse" : "Expand")
     }
 
     /// Core's parse (`InlineMarkdown`) resolved to AppKit attributes —
