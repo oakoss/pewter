@@ -68,9 +68,9 @@ limitations, dismissed review findings with their evidence, relevant
   commit messages instead, reachable via the PR's commits tab (squash
   keeps it out of mainline).
 - After merging changes that affect App-layer behavior, switch back and
-  update (`git checkout main && git pull`) before `mise run run`, so the
-  `docs/manual-testing.md` checklist runs against the merged binary, not
-  a stale per-branch build. If `open` fails with LaunchServices error
+  update (`git checkout main && git pull --ff-only`) before `mise run run`,
+  so the `docs/manual-testing.md` checklist runs against the merged
+  binary, not a stale per-branch build. If `open` fails with LaunchServices error
   -600, the shell is sandboxed — run the launch step unsandboxed.
 - Watch PR checks with one background command instead of timed re-checks:
   `sleep 20 && gh pr checks <number> --watch --fail-fast` (exit 0 = all
