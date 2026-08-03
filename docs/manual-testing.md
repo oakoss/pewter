@@ -123,6 +123,13 @@ or the status item / panel / window layer.
 - [ ] TUI with its own select-to-copy (Claude Code in a terminal): select,
       double-tap within ~3 s → captures via the recent-clipboard assist;
       waiting longer than ~3 s with no selection → "No text selected"
+- [ ] Same TUI, third selection + capture → near-instant feedback (the
+      first two captures teach that the app's synthetic copies are dead —
+      one coincidence must not classify an app; later ones skip straight
+      to the assist). Quitting and relaunching the terminal app keeps it
+      fast (trust is per-app, not per-process); relaunching Pewter resets
+      the learning. Roughly every eighth fast capture deliberately runs
+      the slow sequence again to re-verify the app still behaves this way
 - [ ] Nothing selected + double-shift → status icon shows ✕ and a "No text
       selected" HUD appears near the caret (or mouse), clipboard untouched
 - [ ] Capture the same selection twice within ~2 s (double-tap fired twice,

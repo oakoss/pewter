@@ -13,6 +13,14 @@ public protocol PasteboardCaptureSurface {
 
     var changeCount: Int { get }
     var frontmostAppPid: pid_t? { get }
+    /// Stable identity for trust decisions — copy-on-select is an app
+    /// property, not a process property.
+    var frontmostAppBundleID: String? { get }
+    /// Blocks until synthesizing Cmd+C is safe (lingering hardware
+    /// modifiers would turn it into a different chord). Called by the
+    /// runner immediately before synthesis so paths that never synthesize
+    /// never pay the wait.
+    func awaitSynthesisReady() async
     /// The clipboard's capturable flavors, read raw — `RichCapture` owns
     /// which one becomes the note.
     func pasteboardFlavors() -> PasteboardFlavors
@@ -39,6 +47,56 @@ public protocol PasteboardCaptureSurface {
     func endOwnWrites()
 }
 
+/// Session-scoped trust ledger for apps whose synthetic copies die and
+/// whose captures succeed via the recent-clipboard assist. For a trusted
+/// source the assist answer IS what the full sequence would return — the
+/// app can't answer a re-sent Cmd+C — so later captures may take it up
+/// front instead of burning both poll windows to rediscover the same dead
+/// end. Keyed by bundle identifier: copy-on-select is an application
+/// property, so trust survives an app relaunch and no process-lifetime
+/// bookkeeping is needed.
+///
+/// Trust is earned twice and stays falsifiable. Twice, because the tracker
+/// can't attribute a clipboard write to a process — one assist success can
+/// be a coincidental foreign write, and one coincidence must not classify
+/// an app. Falsifiable, because the fast path never synthesizes: without
+/// periodic re-proof, an app whose behavior changed (copy-on-select turned
+/// off) could keep its stale trust forever.
+@MainActor
+public final class CopyOnSelectSources {
+    private static let trustThreshold = 2
+    /// Every Nth eligible capture declines the fast path so the full
+    /// sequence re-proves the classification — either the assist
+    /// re-teaches it or a landed synthesis contradicts it.
+    private static let reproofInterval = 8
+
+    private var sightings: [String: Int] = [:]
+    private var trustedUses: [String: Int] = [:]
+
+    public init() {}
+
+    public func recordAssistSuccess(_ key: String?) {
+        guard let key else { return }
+        sightings[key, default: 0] += 1
+    }
+
+    /// A landed synthesis disproves copy-on-select; trust restarts from
+    /// zero.
+    public func recordContradiction(_ key: String?) {
+        guard let key else { return }
+        sightings[key] = nil
+        trustedUses[key] = nil
+    }
+
+    /// Also counts eligible captures, to pace the re-proof turns.
+    public func shouldFastPath(_ key: String?) -> Bool {
+        guard let key, sightings[key, default: 0] >= Self.trustThreshold else { return false }
+        let uses = trustedUses[key, default: 0] + 1
+        trustedUses[key] = uses
+        return uses % Self.reproofInterval != 0
+    }
+}
+
 /// Sequencing for the pasteboard tier: synthesize → poll → pid retry →
 /// late-copy attribution → capture/restore. Lives in Core over an injected
 /// surface so the branches that need a GPU terminal or a clipboard manager
@@ -47,9 +105,38 @@ public enum PasteboardCaptureRunner {
     private static let logger = Logger.capture
 
     @MainActor
-    public static func run(on surface: some PasteboardCaptureSurface) async -> PasteboardCaptureResult {
+    public static func run(
+        on surface: some PasteboardCaptureSurface,
+        sources: CopyOnSelectSources
+    ) async -> PasteboardCaptureResult {
+        // Trusted copy-on-select source with fresh clipboard activity: the
+        // selection is already on the clipboard, and synthesizing would
+        // only spend the poll windows proving it again. Consulted before
+        // any own write, so the tracker reads pre-capture activity. Falls
+        // through on non-text content — the full sequence stays the
+        // arbiter of nothingSelected versus failed.
+        if sources.shouldFastPath(surface.frontmostAppBundleID), surface.recentClipboardChange() {
+            let result = PasteboardCapturePolicy.capturedResult(from: capturedText(on: surface))
+            if case .copied = result {
+                logger.info("using recently auto-copied clipboard content (known copy-on-select source)")
+                return result
+            }
+            logger.debug("known copy-on-select source held no text content; running full sequence")
+        }
+
+        await surface.awaitSynthesisReady()
+        guard !Task.isCancelled else { return .failed }
+
+        // Bound after the wait, immediately before synthesis: the HID copy
+        // lands in whatever is frontmost NOW, and the retry, the trust
+        // record, and the contradiction must all target that app — an app
+        // switch during the wait or the poll windows must not misattribute
+        // any of them.
+        let sourceKey = surface.frontmostAppBundleID
+        let sourcePid = surface.frontmostAppPid
+
         // Snapshot immediately before the copy — taken any earlier, a
-        // foreign write during the caller's pre-copy waits would read as
+        // foreign write during the pre-copy modifier wait would read as
         // our copy landing, capturing foreign content and clobbering it on
         // restore.
         let snapshot = surface.saveClipboard()
@@ -69,7 +156,7 @@ public enum PasteboardCaptureRunner {
         // Some GPU terminals ignore synthetic events from the HID tap but
         // accept them delivered directly to their process.
         if landedCount == nil {
-            if let pid = surface.frontmostAppPid {
+            if let pid = sourcePid {
                 logger.info("HID-tap copy ignored; retrying via postToPid")
                 guard await surface.synthesizeCopy(to: pid) else {
                     logger.error("postToPid Cmd+C synthesis failed; capture aborted")
@@ -95,19 +182,25 @@ public enum PasteboardCaptureRunner {
         }
 
         if let landedCount {
+            // A landed synthesis is direct disproof of copy-on-select for
+            // this source — trusted-until-contradicted, not one
+            // observation forever.
+            sources.recordContradiction(sourceKey)
             let result = PasteboardCapturePolicy.capturedResult(from: capturedText(on: surface))
             restoreIfSafe(on: surface, snapshot: snapshot, expectedChangeCount: landedCount)
             return result
         }
 
-        // Only consulted when no copy landed: `recentClipboardChange`
-        // mutates tracker state, and touching it on the landed path would
-        // lean on the own-writes bracketing staying exactly as wide as it
-        // is today. Recent activity plus a dead copy means the clipboard
-        // already holds this selection — use it and leave it there.
+        // Never consulted on the landed path: `recentClipboardChange`
+        // mutates tracker state, and touching it there would lean on the
+        // own-writes bracketing staying exactly as wide as it is today.
+        // Recent activity plus a dead copy means the clipboard already
+        // holds this selection — use it, leave it there, and remember the
+        // source so the next capture skips the dead synthesis.
         if surface.recentClipboardChange() {
             let result = PasteboardCapturePolicy.capturedResult(from: capturedText(on: surface))
             if case .copied = result {
+                sources.recordAssistSuccess(sourceKey)
                 logger.info("using recently auto-copied clipboard content")
             } else {
                 logger.info("recent clipboard change held no string content")

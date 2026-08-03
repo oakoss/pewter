@@ -24,6 +24,9 @@ struct PasteboardCapture: PasteboardCapturing, PasteboardCaptureSurface {
     private let ownWritesBegin: @MainActor () -> Void
     private let ownWritesEnd: @MainActor () -> Void
 
+    /// Class reference, so the learning survives this struct being copied.
+    private let copyOnSelectSources = CopyOnSelectSources()
+
     init(
         recentClipboardChange: @escaping @MainActor () -> Bool,
         beginOwnWrites: @escaping @MainActor () -> Void,
@@ -35,30 +38,7 @@ struct PasteboardCapture: PasteboardCapturing, PasteboardCaptureSurface {
     }
 
     func capture() async -> PasteboardCaptureResult {
-        // Wait for physical modifiers to clear before synthesizing: the chord
-        // hotkey fires on key-down with its modifiers guaranteed held, and on
-        // the tap path the key-up event can precede the combined-state flags
-        // clearing. A lingering hardware modifier turns our Cmd+C into a
-        // different chord in some target apps. Cmd is excluded from the wait
-        // set — it's the chord being synthesized.
-        for _ in 0 ..< 20 {
-            let held = CGEventSource.flagsState(.combinedSessionState)
-                .intersection([.maskShift, .maskControl, .maskAlternate])
-            if held.isEmpty {
-                break
-            }
-            try? await Task.sleep(for: .milliseconds(15))
-            guard !Task.isCancelled else { return .failed }
-        }
-        if !CGEventSource.flagsState(.combinedSessionState)
-            .intersection([.maskShift, .maskControl, .maskAlternate]).isEmpty
-        {
-            Self.logger.warning("modifiers still held after 300 ms wait; synthesizing Cmd+C anyway")
-        }
-        try? await Task.sleep(for: .milliseconds(15))
-        guard !Task.isCancelled else { return .failed }
-
-        return await PasteboardCaptureRunner.run(on: self)
+        await PasteboardCaptureRunner.run(on: self, sources: copyOnSelectSources)
     }
 
     // MARK: - PasteboardCaptureSurface
@@ -69,6 +49,34 @@ struct PasteboardCapture: PasteboardCapturing, PasteboardCaptureSurface {
 
     var frontmostAppPid: pid_t? {
         NSWorkspace.shared.frontmostApplication?.processIdentifier
+    }
+
+    var frontmostAppBundleID: String? {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+    }
+
+    /// Waits for physical modifiers to clear before synthesis: the chord
+    /// hotkey fires on key-down with its modifiers guaranteed held, and on
+    /// the tap path the key-up event can precede the combined-state flags
+    /// clearing. A lingering hardware modifier turns our Cmd+C into a
+    /// different chord in some target apps. Cmd is excluded from the wait
+    /// set — it's the chord being synthesized.
+    func awaitSynthesisReady() async {
+        for _ in 0 ..< 20 {
+            let held = CGEventSource.flagsState(.combinedSessionState)
+                .intersection([.maskShift, .maskControl, .maskAlternate])
+            if held.isEmpty {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(15))
+            guard !Task.isCancelled else { return }
+        }
+        if !CGEventSource.flagsState(.combinedSessionState)
+            .intersection([.maskShift, .maskControl, .maskAlternate]).isEmpty
+        {
+            Self.logger.warning("modifiers still held after 300 ms wait; synthesizing Cmd+C anyway")
+        }
+        try? await Task.sleep(for: .milliseconds(15))
     }
 
     /// Raw flavor lift only — which flavor becomes the note is Core's
