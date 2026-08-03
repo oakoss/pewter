@@ -63,16 +63,33 @@ struct ItemRow: View {
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
+        // A roleless combined row exposes as AXUnknown, which VoiceOver
+        // skips on hover and won't traverse. Activation selects; the named
+        // actions carry the other verbs. The trait drops and the action
+        // guards while the inline editor is up, or activating the row
+        // would move focus off the editor and discard the edit.
+        .accessibilityAddTraits(isEditing ? [] : .isButton)
+        .accessibilityAction {
+            if !isEditing {
+                onSelect()
+            }
+        }
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         // Done state as a value, not strikethrough alone — and every mouse
         // route (tap to select, double-tap to edit, hover copy, menu
         // delete) as a named action, since the combined row swallows the
         // gestures VoiceOver can't reach.
         .accessibilityValue(item.done ? "Done" : "Not done")
-        .accessibilityAction(named: "Select") { onSelect() }
         .accessibilityAction(named: "Edit") { onBeginEdit() }
         .accessibilityAction(named: item.done ? "Mark as Not Done" : "Mark as Done") { onToggle() }
         .accessibilityAction(named: "Copy") { onCopy() }
+        .accessibilityActions {
+            // Only long notes can visibly expand; a short note would toggle
+            // hidden state to no effect.
+            if isTruncated {
+                Button(isExpanded ? "Collapse" : "Expand") { onToggleExpand() }
+            }
+        }
         .accessibilityAction(named: "Delete") { onDelete() }
         .onTapGesture(count: 2) { onBeginEdit() }
         .onTapGesture { onSelect() }
@@ -138,8 +155,11 @@ struct ItemRow: View {
         .allowsHitTesting(showsCopyButton)
         // Unconditionally, not on hover: the row's Copy action covers
         // VoiceOver, and a pointer resting on the row would otherwise
-        // surface a second Copy.
+        // surface a second Copy. The label still matters — VO's pointer
+        // hit-testing can land on the control directly, and an unlabeled
+        // icon button speaks as a bare "button".
         .accessibilityHidden(true)
+        .accessibilityLabel("Copy")
         .help("Copy — ⌥ click to also mark as done")
     }
 
@@ -157,8 +177,10 @@ struct ItemRow: View {
         .buttonStyle(.plain)
         .pointingHandCursor()
         // The combined row carries done state as its value and toggling as
-        // a named action; exposing the button too would double-speak.
+        // a named action; exposing the button too would double-speak. The
+        // label covers VO pointer hits, which bypass the hidden flag.
         .accessibilityHidden(true)
+        .accessibilityLabel(item.done ? "Mark as not done" : "Mark as done")
     }
 
     @ViewBuilder
@@ -236,6 +258,9 @@ struct ItemRow: View {
         }
         .buttonStyle(.plain)
         .pointingHandCursor()
+        // The row's Expand/Collapse action covers VoiceOver; exposing the
+        // button too would surface the verb twice.
+        .accessibilityHidden(true)
         // No ⌘E hint: the shortcut acts on the selection, and the chevron's
         // row isn't necessarily in it.
         .help(isExpanded ? "Collapse" : "Expand")
