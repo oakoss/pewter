@@ -5,14 +5,19 @@ import Testing
 @MainActor
 private final class FakeReader: SelectionReading {
     var result: String?
+    var anchor: CGRect?
     var callCount = 0
-    init(result: String?) {
+    init(result: String?, anchor: CGRect? = nil) {
         self.result = result
+        self.anchor = anchor
     }
 
-    func readSelection() -> String? {
+    func readSelection() -> SelectionRead {
         callCount += 1
-        return result
+        if let result {
+            return .selection(text: result, bounds: anchor)
+        }
+        return .noSelection(caret: anchor)
     }
 }
 
@@ -87,7 +92,7 @@ struct CaptureCoordinatorTests {
         #expect(store.items.map(\.text) == ["from AX"])
         #expect(capture.callCount == 0)
         #expect(outcomes.all.count == 1)
-        if case let .captured(item) = outcomes.all[0] {
+        if case let .captured(item, _) = outcomes.all[0] {
             #expect(item.text == "from AX")
         } else {
             Issue.record("expected .captured, got \(outcomes.all)")
@@ -114,20 +119,72 @@ struct CaptureCoordinatorTests {
         coordinator.captureSelection()
         try await waitUntil { !outcomes.all.isEmpty }
 
-        #expect(outcomes.all == [.nothingSelected])
+        #expect(outcomes.all == [.nothingSelected(anchor: nil)])
         #expect(store.items.isEmpty)
     }
 
     @Test func whitespaceOnlyCaptureReportsNothingSelected() async throws {
-        let reader = FakeReader(result: nil)
+        let caret = CGRect(x: 5, y: 5, width: 0, height: 18)
+        let reader = FakeReader(result: nil, anchor: caret)
         let capture = FakeCapture(result: .copied("   \n  "))
         let (coordinator, store, outcomes) = makeCoordinator(reader: reader, capture: capture)
 
         coordinator.captureSelection()
         try await waitUntil { !outcomes.all.isEmpty }
 
-        #expect(outcomes.all == [.nothingSelected])
+        // The outcome is "nothing selected", which is exactly what the
+        // pre-read caret exists to place — whitespace-only clipboard text
+        // must not demote the feedback to the mouse.
+        #expect(outcomes.all == [.nothingSelected(anchor: caret)])
         #expect(store.items.isEmpty)
+    }
+
+    @Test func selectionCaptureCarriesTheReadersAnchor() throws {
+        let anchor = CGRect(x: 10, y: 20, width: 100, height: 18)
+        let reader = FakeReader(result: "from AX", anchor: anchor)
+        let capture = FakeCapture(result: .copied("unused"))
+        let (coordinator, store, outcomes) = makeCoordinator(reader: reader, capture: capture)
+
+        coordinator.captureSelection()
+
+        let item = try #require(store.items.first)
+        #expect(outcomes.all == [.captured(item, anchor: anchor)])
+    }
+
+    @Test func pasteboardCaptureCarriesNoAnchor() async throws {
+        // The caret anchor from the failed AX read must not leak onto a
+        // pasteboard capture — that text came from somewhere else.
+        let reader = FakeReader(result: nil, anchor: CGRect(x: 5, y: 5, width: 0, height: 18))
+        let capture = FakeCapture(result: .copied("from clipboard"))
+        let (coordinator, store, outcomes) = makeCoordinator(reader: reader, capture: capture)
+
+        coordinator.captureSelection()
+        try await waitUntil { !outcomes.all.isEmpty }
+
+        let item = try #require(store.items.first)
+        #expect(outcomes.all == [.captured(item, anchor: nil)])
+    }
+
+    @Test func nothingSelectedCarriesTheCaretAnchor() async throws {
+        let caret = CGRect(x: 5, y: 5, width: 0, height: 18)
+        let reader = FakeReader(result: nil, anchor: caret)
+        let capture = FakeCapture(result: .nothingSelected)
+        let (coordinator, _, outcomes) = makeCoordinator(reader: reader, capture: capture)
+
+        coordinator.captureSelection()
+        try await waitUntil { !outcomes.all.isEmpty }
+
+        #expect(outcomes.all == [.nothingSelected(anchor: caret)])
+    }
+
+    @Test func whitespaceOnlySelectionCarriesTheAnchor() {
+        let anchor = CGRect(x: 10, y: 20, width: 40, height: 18)
+        let reader = FakeReader(result: "   ", anchor: anchor)
+        let (coordinator, _, outcomes) = makeCoordinator(reader: reader, capture: FakeCapture(result: .failed))
+
+        coordinator.captureSelection()
+
+        #expect(outcomes.all == [.nothingSelected(anchor: anchor)])
     }
 
     @Test func synthesisFailureReportsCaptureFailed() async throws {
@@ -154,13 +211,19 @@ struct CaptureCoordinatorTests {
             now: { clock }
         )
 
+        let firstAnchor = CGRect(x: 10, y: 10, width: 50, height: 18)
+        reader.anchor = firstAnchor
         coordinator.captureSelection()
         clock += 1.5
+        // The re-surfaced duplicate carries the CURRENT attempt's anchor —
+        // the user may have scrolled since the first capture.
+        let secondAnchor = CGRect(x: 10, y: 300, width: 50, height: 18)
+        reader.anchor = secondAnchor
         coordinator.captureSelection()
 
         #expect(store.items.count == 1)
         let first = try #require(store.items.first)
-        #expect(outcomes.all == [.captured(first), .captured(first)])
+        #expect(outcomes.all == [.captured(first, anchor: firstAnchor), .captured(first, anchor: secondAnchor)])
         // These tests exercise the synchronous AX path only.
         #expect(capture.callCount == 0)
     }
@@ -201,7 +264,7 @@ struct CaptureCoordinatorTests {
         // Whitespace must fall through to .nothingSelected — the guard
         // must never match it against a stored note.
         #expect(store.items.count == 1)
-        #expect(outcomes.all.last == .nothingSelected)
+        #expect(outcomes.all.last == .nothingSelected(anchor: nil))
     }
 
     @Test func duplicateAtTheWindowBoundariesIsSuppressed() {
@@ -421,7 +484,7 @@ struct CaptureCoordinatorTests {
     }
 
     @Test func richSourcePrefersThePasteboardOverAX() async throws {
-        let reader = FakeReader(result: "plain from AX")
+        let reader = FakeReader(result: "plain from AX", anchor: CGRect(x: 1, y: 2, width: 3, height: 4))
         let capture = FakeCapture(result: .copied("**rich** from pasteboard"))
         let (coordinator, store, outcomes) = makeCoordinator(
             reader: reader, capture: capture, prefersRichSource: true
@@ -432,10 +495,13 @@ struct CaptureCoordinatorTests {
 
         #expect(store.items.map(\.text) == ["**rich** from pasteboard"])
         #expect(reader.callCount == 0)
+        let item = try #require(store.items.first)
+        #expect(outcomes.all == [.captured(item, anchor: nil)])
     }
 
     @Test func richSourceRescuesWithAXWhenPasteboardIsEmpty() async throws {
-        let reader = FakeReader(result: "ax rescue")
+        let anchor = CGRect(x: 40, y: 50, width: 120, height: 18)
+        let reader = FakeReader(result: "ax rescue", anchor: anchor)
         let capture = FakeCapture(result: .nothingSelected)
         let (coordinator, store, outcomes) = makeCoordinator(
             reader: reader, capture: capture, prefersRichSource: true
@@ -445,10 +511,13 @@ struct CaptureCoordinatorTests {
         try await waitUntil { !outcomes.all.isEmpty }
 
         #expect(store.items.map(\.text) == ["ax rescue"])
+        let item = try #require(store.items.first)
+        #expect(outcomes.all == [.captured(item, anchor: anchor)])
     }
 
     @Test func richSourceRescuesWithAXOnCaptureFailure() async throws {
-        let reader = FakeReader(result: "ax rescue")
+        let anchor = CGRect(x: 40, y: 50, width: 120, height: 18)
+        let reader = FakeReader(result: "ax rescue", anchor: anchor)
         let capture = FakeCapture(result: .failed)
         let (coordinator, store, outcomes) = makeCoordinator(
             reader: reader, capture: capture, prefersRichSource: true
@@ -458,11 +527,13 @@ struct CaptureCoordinatorTests {
         try await waitUntil { !outcomes.all.isEmpty }
 
         #expect(store.items.map(\.text) == ["ax rescue"])
-        #expect(outcomes.all.count == 1)
+        let item = try #require(store.items.first)
+        #expect(outcomes.all == [.captured(item, anchor: anchor)])
     }
 
     @Test func richSourceWithNothingAnywhereReportsNothingSelected() async throws {
-        let reader = FakeReader(result: nil)
+        let caret = CGRect(x: 40, y: 50, width: 0, height: 18)
+        let reader = FakeReader(result: nil, anchor: caret)
         let capture = FakeCapture(result: .nothingSelected)
         let (coordinator, store, outcomes) = makeCoordinator(
             reader: reader, capture: capture, prefersRichSource: true
@@ -471,7 +542,7 @@ struct CaptureCoordinatorTests {
         coordinator.captureSelection()
         try await waitUntil { !outcomes.all.isEmpty }
 
-        #expect(outcomes.all == [.nothingSelected])
+        #expect(outcomes.all == [.nothingSelected(anchor: caret)])
         #expect(store.items.isEmpty)
     }
 
@@ -558,7 +629,7 @@ struct CaptureCoordinatorTests {
         coordinator.captureSelection()
 
         #expect(store.items.isEmpty)
-        #expect(outcomes.all == [.nothingSelected])
+        #expect(outcomes.all == [.nothingSelected(anchor: nil)])
     }
 
     @Test func oneOverTheCapTruncates() {

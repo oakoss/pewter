@@ -236,7 +236,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleCapture(_ outcome: CaptureCoordinator.Outcome) {
         switch outcome {
-        case let .captured(item):
+        case let .captured(item, anchor):
             if panelController?.isVisible == true {
                 // An active filter would hide the new item and the capture
                 // would read as failed. A hidden panel keeps its filter —
@@ -244,21 +244,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 uiState.query = ""
                 uiState.highlight(item.id)
             }
-            showCaptureFeedback(.captured)
-        case .nothingSelected:
-            showCaptureFeedback(.nothingSelected)
+            showCaptureFeedback(.captured, anchor: anchor)
+        case let .nothingSelected(anchor):
+            showCaptureFeedback(.nothingSelected, anchor: anchor)
         case .captureFailed:
-            showCaptureFeedback(.captureFailed)
+            showCaptureFeedback(.captureFailed, anchor: nil)
         case .notPermitted:
             onboarding?.showIfNeeded()
         }
     }
 
-    /// One Feedback value drives both surfaces — the HUD at the point of
-    /// capture and the status-item flash VoiceOver reads — so a sighted user
-    /// and a VoiceOver user never get different stories.
-    private func showCaptureFeedback(_ feedback: CaptureHUDController.Feedback) {
-        captureHUD?.show(feedback)
+    private func showCaptureFeedback(_ feedback: CaptureFeedback, anchor: CGRect?) {
+        captureHUD?.show(feedback, anchor: anchor)
         statusItemController?.flash(
             symbolName: feedback.symbolName,
             description: feedback.message,
