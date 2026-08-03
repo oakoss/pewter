@@ -28,8 +28,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let permission = AccessibilityPermission()
         self.permission = permission
 
+        let commands = AppCommands(
+            revealNotesFile: {
+                NSWorkspace.shared.activateFileViewerSelecting([storage.fileURL])
+            },
+            settings: { [weak self] in
+                self?.showSettings()
+            },
+            permissions: { [weak self] in
+                self?.onboarding?.show()
+            },
+            copyDiagnostics: { [weak self] in
+                self?.copyDiagnostics()
+            },
+            quit: {
+                NSApp.terminate(nil)
+            }
+        )
+
         let panelController = PanelController(
-            rootView: PanelRootView()
+            rootView: PanelRootView(commands: commands)
                 .environment(store)
                 .environment(uiState)
         )
@@ -39,18 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onToggle: { button in
                 panelController.toggle(relativeTo: button)
             },
-            onRevealFile: {
-                NSWorkspace.shared.activateFileViewerSelecting([storage.fileURL])
-            },
-            onShowSettings: { [weak self] in
-                self?.showSettings()
-            },
-            onShowPermissions: { [weak self] in
-                self?.onboarding?.show()
-            },
-            onCopyDiagnostics: { [weak self] in
-                self?.copyDiagnostics()
-            }
+            commands: commands
         )
         self.statusItemController = statusItemController
 
@@ -137,18 +144,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         uiState.showsPermissionBanner = !permission.isTrusted
         uiState.onRequestPermission = { [weak onboarding] in
             onboarding?.showIfNeeded()
-        }
-        uiState.onOpenSettings = { [weak self] in
-            self?.showSettings()
-        }
-        uiState.onRevealNotesFile = {
-            NSWorkspace.shared.activateFileViewerSelecting([storage.fileURL])
-        }
-        uiState.onShowPermissions = { [weak onboarding] in
-            onboarding?.show()
-        }
-        uiState.onCopyDiagnostics = { [weak self] in
-            self?.copyDiagnostics()
         }
         uiState.onDismissPanel = { [weak panelController] in
             panelController?.hide()

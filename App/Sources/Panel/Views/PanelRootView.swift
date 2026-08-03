@@ -2,6 +2,10 @@ import PewterCore
 import SwiftUI
 
 struct PanelRootView: View {
+    /// The shared launcher-command table; non-optional so a wiring gap is a
+    /// compile error, not a menu of silent no-ops.
+    let commands: AppCommands
+
     @Environment(ListStore.self) private var store
     @Environment(PanelUIState.self) private var uiState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -244,16 +248,18 @@ struct PanelRootView: View {
         .padding(10)
     }
 
-    /// Same launcher actions as the status item's menu — its right-click
-    /// is the only other mouse path to these.
+    /// Renders the same command table as the status item's menu — its
+    /// right-click is the only other mouse path to these.
     private var panelMenu: some View {
         Menu {
-            Button("Settings…") { uiState.onOpenSettings?() }
-            Button("Reveal Notes File in Finder") { uiState.onRevealNotesFile?() }
-            Button("Permissions…") { uiState.onShowPermissions?() }
-            Button("Copy Diagnostics") { uiState.onCopyDiagnostics?() }
-            Divider()
-            Button("Quit Pewter") { NSApp.terminate(nil) }
+            ForEach(Array(AppMenu.groups.enumerated()), id: \.offset) { index, group in
+                if index > 0 {
+                    Divider()
+                }
+                ForEach(group) { command in
+                    Button(command.title) { commands.run(command.id) }
+                }
+            }
         } label: {
             Image(systemName: "ellipsis")
                 .foregroundStyle(.secondary)

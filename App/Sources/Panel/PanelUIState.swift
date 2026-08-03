@@ -18,16 +18,8 @@ final class PanelUIState {
     /// Empty-state hint reflecting the configured capture trigger.
     var captureHint = "Double-tap Shift to capture a selection"
     var onRequestPermission: (() -> Void)?
-    /// Launcher actions for the panel's ellipsis menu — the mouse path for
-    /// users who never discover the status item's right-click menu.
-    var onOpenSettings: (() -> Void)?
-    var onRevealNotesFile: (() -> Void)?
-    /// Unconditional, unlike onRequestPermission's showIfNeeded — a menu
-    /// item must open the window even when access is already granted.
-    var onShowPermissions: (() -> Void)?
-    var onCopyDiagnostics: (() -> Void)?
     /// Cmd+W — the view can't reach the panel window, so hiding routes out
-    /// through the same closure seam as the launcher actions.
+    /// through a closure seam.
     var onDismissPanel: (() -> Void)?
 
     /// One-shot scroll request, consumed by the next list-count change —

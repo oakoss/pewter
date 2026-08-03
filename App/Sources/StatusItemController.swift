@@ -1,28 +1,20 @@
 import Accessibility
 import AppKit
+import PewterCore
 
 @MainActor
 final class StatusItemController: NSObject {
     private let statusItem: NSStatusItem
     private let onToggle: (NSStatusBarButton?) -> Void
-    private let onRevealFile: () -> Void
-    private let onShowSettings: () -> Void
-    private let onShowPermissions: () -> Void
-    private let onCopyDiagnostics: () -> Void
+    private let commands: AppCommands
 
     init(
         onToggle: @escaping (NSStatusBarButton?) -> Void,
-        onRevealFile: @escaping () -> Void,
-        onShowSettings: @escaping () -> Void,
-        onShowPermissions: @escaping () -> Void,
-        onCopyDiagnostics: @escaping () -> Void
+        commands: AppCommands
     ) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         self.onToggle = onToggle
-        self.onRevealFile = onRevealFile
-        self.onShowSettings = onShowSettings
-        self.onShowPermissions = onShowPermissions
-        self.onCopyDiagnostics = onCopyDiagnostics
+        self.commands = commands
         super.init()
 
         if let button = statusItem.button {
@@ -79,35 +71,21 @@ final class StatusItemController: NSObject {
     private func showMenu() {
         let menu = NSMenu()
 
-        let reveal = NSMenuItem(title: "Reveal Notes File in Finder", action: #selector(revealFile), keyEquivalent: "")
-        reveal.target = self
-        menu.addItem(reveal)
-
-        menu.addItem(.separator())
-
-        // Configuration lives in the settings window; the menu stays a
-        // launcher. Cmd+, is what menubar-app users reflexively try.
-        let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
-        settings.target = self
-        menu.addItem(settings)
-
-        let permissions = NSMenuItem(title: "Permissions…", action: #selector(showPermissions), keyEquivalent: "")
-        permissions.target = self
-        menu.addItem(permissions)
-
-        let diagnostics = NSMenuItem(title: "Copy Diagnostics", action: #selector(copyDiagnostics), keyEquivalent: "")
-        diagnostics.target = self
-        menu.addItem(diagnostics)
-
-        menu.addItem(.separator())
-
-        let quit = NSMenuItem(
-            title: "Quit Pewter",
-            action: #selector(NSApplication.terminate(_:)),
-            keyEquivalent: "q"
-        )
-        quit.target = NSApp
-        menu.addItem(quit)
+        for (index, group) in AppMenu.groups.enumerated() {
+            if index > 0 {
+                menu.addItem(.separator())
+            }
+            for command in group {
+                let item = NSMenuItem(
+                    title: command.title,
+                    action: #selector(runCommand(_:)),
+                    keyEquivalent: command.keyEquivalent
+                )
+                item.target = self
+                item.representedObject = command.id
+                menu.addItem(item)
+            }
+        }
 
         // Pop directly instead of the assign-menu-and-performClick dance:
         // synthesizing a click lets menubar managers (Bartender) intercept
@@ -135,19 +113,11 @@ final class StatusItemController: NSObject {
         button.highlight(false)
     }
 
-    @objc private func revealFile() {
-        onRevealFile()
-    }
-
-    @objc private func showSettings() {
-        onShowSettings()
-    }
-
-    @objc private func showPermissions() {
-        onShowPermissions()
-    }
-
-    @objc private func copyDiagnostics() {
-        onCopyDiagnostics()
+    @objc private func runCommand(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? MenuCommand.ID else {
+            assertionFailure("menu item without a command id: \(sender.title)")
+            return
+        }
+        commands.run(id)
     }
 }
