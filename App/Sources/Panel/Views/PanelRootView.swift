@@ -8,6 +8,10 @@ struct PanelRootView: View {
 
     @State private var draft = ""
     @State private var selection = SelectionModel()
+    @State private var expansion = NoteExpansion()
+    /// One-shot: after a collapse shrinks the content, the acted-on row can
+    /// end up off-screen; scrolling back to it keeps the user's place.
+    @State private var collapseScrollTarget: UUID?
     @State private var editingID: UUID?
     @FocusState private var focus: Field?
 
@@ -100,6 +104,16 @@ struct PanelRootView: View {
                   press.modifiers.isDisjoint(with: [.option, .control]),
                   focus == .list || focus == nil else { return .ignored }
             return mergeSelected()
+        }
+        .onKeyPress(keys: ["e", "E"], phases: .down) { press in
+            // Same focus rule as Cmd+A: in a text field Cmd+E keeps its
+            // field meaning (use selection for find).
+            guard press.modifiers.contains(.command),
+                  press.modifiers.isDisjoint(with: [.shift, .option, .control]),
+                  focus == .list || focus == nil,
+                  !selection.isEmpty else { return .ignored }
+            toggleExpansion(selection.selected)
+            return .handled
         }
         .onKeyPress(keys: ["f", "F"], phases: .down) { press in
             guard press.modifiers.contains(.command),
@@ -216,7 +230,12 @@ struct PanelRootView: View {
             ScrollView {
                 // Focusable so list-level shortcuts (Space, Return, Delete,
                 // Cmd+C) have a focus state distinct from the text fields.
-                LazyVStack(spacing: 4) {
+                //
+                // Eager, not LazyVStack: lazy content extents go stale when
+                // an off-screen-sized row shrinks (collapsing an expanded
+                // note), stranding the scroll offset past the content on a
+                // blank viewport. Exact extents let the scroll view clamp.
+                VStack(spacing: 4) {
                     ForEach(sections) { section in
                         if let heading = section.heading {
                             sectionHeader(heading)
@@ -228,9 +247,14 @@ struct PanelRootView: View {
                                 isSelected: isRowSelected,
                                 isHighlighted: item.id == uiState.highlightedItemID,
                                 isEditing: item.id == editingID,
+                                isExpanded: expansion.isExpanded(item.id),
                                 menuMarksDone: isRowSelected ? selectionMarksDone : !item.done,
                                 editorFocus: $focus,
                                 onToggle: { store.toggleDone(ids: [item.id]) },
+                                // Row-level like the checkbox: the chevron
+                                // toggles its own row even inside a
+                                // multi-selection; Cmd+E is the selection path.
+                                onToggleExpand: { toggleExpansion([item.id]) },
                                 onSelect: { select(item) },
                                 onBeginEdit: { beginEdit(item) },
                                 onCommitEdit: { text in commitEdit(id: item.id, text: text) },
@@ -274,6 +298,18 @@ struct PanelRootView: View {
                     withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(target) }
                 } else if let last = store.items.last, uiState.query.isEmpty {
                     withAnimation(reduceMotion ? nil : .default) { proxy.scrollTo(last.id) }
+                }
+            }
+            .onChange(of: collapseScrollTarget) { _, target in
+                guard let target else { return }
+                collapseScrollTarget = nil
+                // Minimal-move default on purpose: the eager stack already
+                // clamps the offset, so this only rescues a collapsed row
+                // that ended up off-screen — and no-ops (no viewport yank)
+                // when the row is still visible, e.g. collapsing notes that
+                // were never clamped.
+                withAnimation(reduceMotion ? nil : .default) {
+                    proxy.scrollTo(target)
                 }
             }
         }
@@ -378,6 +414,15 @@ struct PanelRootView: View {
         focus = .list
         selection.step(delta, order: visibleOrder, extending: extending)
         return .handled
+    }
+
+    /// Deliberately not animated: the text view re-clamps its content the
+    /// instant the toggle lands, so an animated row frame lags behind it,
+    /// flashing a gap between the text and the disclosure control.
+    private func toggleExpansion(_ ids: Set<UUID>) {
+        if expansion.toggle(ids) {
+            collapseScrollTarget = visibleOrder.first(where: ids.contains)
+        }
     }
 
     private func toggleSelected() -> KeyPress.Result {

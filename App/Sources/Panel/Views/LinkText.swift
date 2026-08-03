@@ -9,6 +9,7 @@ import SwiftUI
 /// opens the destination.
 struct LinkText: NSViewRepresentable {
     let attributed: NSAttributedString
+    let clamped: Bool
 
     func makeNSView(context: Context) -> LinkTextView {
         let view = LinkTextView(usingTextLayoutManager: false)
@@ -17,7 +18,6 @@ struct LinkText: NSViewRepresentable {
         view.drawsBackground = false
         view.textContainerInset = .zero
         view.textContainer?.lineFragmentPadding = 0
-        view.textContainer?.maximumNumberOfLines = 6
         view.textContainer?.lineBreakMode = .byTruncatingTail
         view.textContainer?.widthTracksTextView = true
         view.isVerticallyResizable = false
@@ -31,6 +31,16 @@ struct LinkText: NSViewRepresentable {
     }
 
     private func apply(to view: LinkTextView) {
+        let lines = clamped ? LinkTextView.clampLineCount : 0
+        if let container = view.textContainer, container.maximumNumberOfLines != lines {
+            container.maximumNumberOfLines = lines
+            // Changing the clamp alone doesn't invalidate TextKit's cached
+            // layout; without this the next measurement returns the old height.
+            view.layoutManager?.invalidateLayout(
+                forCharacterRange: NSRange(location: 0, length: view.textStorage?.length ?? 0),
+                actualCharacterRange: nil
+            )
+        }
         guard let storage = view.textStorage else {
             assertionFailure("NSTextView without a text storage")
             return
@@ -46,6 +56,9 @@ struct LinkText: NSViewRepresentable {
 }
 
 final class LinkTextView: NSTextView {
+    /// Rows clamp to this many lines unless expanded.
+    static let clampLineCount = 6
+
     private var pressedLink: (url: URL, range: NSRange)?
 
     override var acceptsFirstResponder: Bool {

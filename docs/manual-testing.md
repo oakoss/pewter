@@ -281,6 +281,30 @@ an AX answer delivers plain text that passes through untouched.
       while typing in a text field
 - [ ] Hover a row → copy button appears on the right; click copies (brief
       checkmark); ⌥-click copies AND marks done (already-done items stay done)
+- [ ] A note longer than 6 lines shows "Show more" under the clamped text;
+      a short note shows no disclosure. Click it → the full text appears
+      instantly (deliberately unanimated — an animated frame lags the text
+      view's re-clamp and flickers); the label flips to "Show less" and
+      clicking again re-clamps
+- [ ] Cmd+E with a selection expands it; Cmd+E again collapses. A mixed
+      selection (some expanded) fully expands first, then a second press
+      collapses. Short notes swept up in the selection (e.g. via Cmd+A)
+      never show a disclosure. While typing in the search or quick-add
+      field, Cmd+E does nothing to the list
+- [ ] Expansion is transient and per-note: search-filter an expanded note
+      away and clear the filter → still expanded AND still showing "Show
+      less"; scroll an expanded note far off-screen and back → still
+      expanded, still showing "Show less"; hide and reopen the panel →
+      still expanded; relaunch Pewter → collapsed
+- [ ] Collapse a tall expanded note scrolled deep in the list (chevron or
+      Cmd+E) → the collapsed row scrolls back into view; the list is never
+      left showing a blank viewport past the end of the content
+- [ ] Cmd+E on a short note (or a selection of only short notes) changes
+      nothing visibly — no disclosure appears, before or after
+- [ ] Expand a long note, then edit it down to a couple of lines → the
+      disclosure disappears (nothing is clamped anymore) and the note
+      renders normally; links in the revealed lines of an expanded note are
+      clickable with the pointing-hand cursor
 - [ ] Select rows, then click into another app so it becomes frontmost —
       while it is still frontmost, look at the panel: selected rows keep the
       full accent fill, not just the outline (the panel never activates the
