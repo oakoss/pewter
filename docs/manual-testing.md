@@ -472,14 +472,29 @@ an AX answer delivers plain text that passes through untouched.
 
 - [ ] VO to a note row → reads the note text with "Done" or "Not done" as
       the value; done state is never conveyed by strikethrough alone
-- [ ] Row actions menu (VO-⌘-Space) lists Select, Edit, Mark as
-      Done/Not Done, Copy, Delete — each acts on that row only
+- [ ] Hover the pointer over an unselected row with VO running → the row is
+      spoken (rows must not be skipped as unknown elements)
+- [ ] VO-arrow through the list → every row is reachable in order, and the
+      list container announces as "Notes", not a bare "scroll area"
+- [ ] VO to the search and quick-add fields → they announce as "Search
+      notes" and "New note"
+- [ ] Activate a row (VO-Space) → it becomes selected
+- [ ] With a row's inline editor open, VO-Space on the row → the editor
+      stays up and the uncommitted text survives (the row's activation is
+      inert while editing)
+- [ ] Row actions menu (VO-⌘-Space) lists Edit, Mark as Done/Not Done,
+      Copy, Expand/Collapse (long notes), Delete — each acts on that row
+      only
 - [ ] Select three notes (shift-arrow), VO to one of them, invoke Delete →
       only that row is deleted, not the selection
 - [ ] Invoke Edit from the row actions menu → the text field takes VO focus
       and typed text lands in the note
 - [ ] The row's checkbox is not exposed separately (no double-speak of the
       done state)
+- [ ] With VO running, rest the pointer on a row's copy button and on its
+      checkbox → they announce "Copy" and "Mark as done"/"Mark as not
+      done", and the row itself still reads only the note text plus its
+      value
 - [ ] GATING: capture from another app with VO running → the outcome
       ("Captured", "Nothing selected", "Capture failed") is spoken. macOS
       only speaks announcements from the frontmost app, and the capture

@@ -232,6 +232,7 @@ struct PanelRootView: View {
                 .accessibilityHidden(true)
             TextField("Search", text: $uiState.query)
                 .textFieldStyle(.plain)
+                .accessibilityLabel("Search notes")
                 .focused($focus, equals: .search)
             panelMenu
         }
@@ -329,6 +330,12 @@ struct PanelRootView: View {
             // system focus ring around the whole scroll area.
             .focusEffectDisabled()
             .focused($focus, equals: .list)
+            // Contain, then label: without an explicit container element the
+            // label can propagate onto the rows and mask their own text.
+            .accessibilityElement(children: .contain)
+            // VoiceOver announces the container by name instead of a bare
+            // "scroll area".
+            .accessibilityLabel("Notes")
             // contentShape makes the empty area below the rows hit-testable;
             // the gesture fires only for clicks no row consumed.
             .contentShape(Rectangle())
@@ -418,6 +425,10 @@ struct PanelRootView: View {
     private var quickAddField: some View {
         TextField("Add a note or a prompt…", text: $draft, axis: .vertical)
             .textFieldStyle(.plain)
+            .accessibilityLabel("New note")
+            // The label displaces the placeholder in the announcement; the
+            // hint restores what the field accepts.
+            .accessibilityHint("Add a note or a prompt")
             .lineLimit(1 ... 5)
             .padding(10)
             .focused($focus, equals: .quickAdd)
