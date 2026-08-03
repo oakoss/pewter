@@ -22,20 +22,30 @@ final class PanelUIState {
     /// through a closure seam.
     var onDismissPanel: (() -> Void)?
 
-    /// One-shot scroll request, consumed by the next list-count change —
-    /// unlike the 1 s highlight, it can't retarget a later, unrelated change.
-    private var scrollTargetID: UUID?
+    /// Bumped by `reveal(_:)`; the list scrolls on its change, so the scroll
+    /// is tied to the request itself rather than a list-count change that
+    /// may or may not accompany it.
+    private(set) var revealToken = 0
+    /// Scroll target for the current token. Deliberately not cleared by the
+    /// flash timer: a hidden panel may not process the token change until
+    /// the next summon, and the scroll must still land then.
+    private(set) var revealTargetID: UUID?
 
     private var toastTask: Task<Void, Never>?
     private var highlightTask: Task<Void, Never>?
 
-    func requestScroll(to id: UUID) {
-        scrollTargetID = id
-    }
-
-    func takeScrollTarget() -> UUID? {
-        defer { scrollTargetID = nil }
-        return scrollTargetID
+    /// Points the user at an item: flashes it and scrolls it into view.
+    /// Scrolling a filtered-out or not-yet-rendered id is a no-op.
+    func reveal(_ id: UUID, for duration: Duration = .seconds(1)) {
+        revealToken += 1
+        revealTargetID = id
+        highlightedItemID = id
+        highlightTask?.cancel()
+        highlightTask = Task { [weak self] in
+            try? await Task.sleep(for: duration)
+            guard !Task.isCancelled else { return }
+            self?.highlightedItemID = nil
+        }
     }
 
     /// `announces: false` is for callers that already announced the same
@@ -51,16 +61,6 @@ final class PanelUIState {
             try? await Task.sleep(for: duration)
             guard !Task.isCancelled else { return }
             self?.toast = nil
-        }
-    }
-
-    func highlight(_ id: UUID, for duration: Duration = .seconds(1)) {
-        highlightedItemID = id
-        highlightTask?.cancel()
-        highlightTask = Task { [weak self] in
-            try? await Task.sleep(for: duration)
-            guard !Task.isCancelled else { return }
-            self?.highlightedItemID = nil
         }
     }
 }

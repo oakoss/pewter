@@ -146,8 +146,10 @@ or the status item / panel / window layer.
       selected" HUD appears near the caret (or mouse), clipboard untouched
 - [ ] Capture the same selection twice within ~2 s (double-tap fired twice,
       or tap then hotkey) → one note; when the second fire lands after the
-      first completes, it re-highlights the existing note (a fire during
-      the fallback capture is swallowed by the in-flight guard instead).
+      first completes, it re-surfaces the existing note — scrolled into
+      view and briefly highlighted, even though no note was added (a fire
+      during the fallback capture is swallowed by the in-flight guard
+      instead).
       Capture the same selection again after more than 2 s → a second
       note (the window is inclusive at exactly 2 s)
 - [ ] Capture, delete the note, capture the same selection within 2 s →
@@ -281,6 +283,15 @@ an AX answer delivers plain text that passes through untouched.
 - [ ] Esc: clears a multi-selection if one exists, else clears search if
       non-empty, else hides the panel (capture with the panel open → Esc
       still hides in one press despite the new note being selected)
+- [ ] Quick-add with the list scrolled to the top of many notes → the new
+      note is selected, briefly highlighted, and scrolled into view; with
+      an active search filter, quick-add clears the filter first so the
+      new note is visible
+- [ ] Delete a mid-list note with the tail off-screen → the viewport stays
+      put (no jump to the end of the list)
+- [ ] Capture with the panel hidden and the list scrolled to the top,
+      wait a few seconds, summon the panel → the list is scrolled to the
+      new note (the reveal target survives until the next summon)
 - [ ] Keyboard: ↑/↓ select, Space toggles, Enter edits, Delete removes,
       Cmd+C copies item, Cmd+Shift+C copies list, Cmd+F focuses search
 - [ ] Select two or more notes → Cmd+Shift+M (or right-click → Merge
