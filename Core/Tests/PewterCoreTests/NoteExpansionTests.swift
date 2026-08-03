@@ -12,11 +12,11 @@ struct NoteExpansionTests {
 
     @Test func toggleExpandsAndCollapsesOneNote() {
         var model = NoteExpansion()
-        let expanded = model.toggle([ids[0]])
-        #expect(!expanded)
+        let firstPress = model.toggle([ids[0]])
+        #expect(!firstPress)
         #expect(model.isExpanded(ids[0]))
-        let collapsed = model.toggle([ids[0]])
-        #expect(collapsed)
+        let secondPress = model.toggle([ids[0]])
+        #expect(secondPress)
         #expect(!model.isExpanded(ids[0]))
     }
 
