@@ -40,6 +40,7 @@ struct ShortcutGuideView: View {
     private static let spokenKeys: [Character: String] = [
         "⌘": "Command", "⇧": "Shift", "⌫": "Delete", "⎋": "Escape",
         "␣": "Space", "↩": "Return", "↑": "Up Arrow", "↓": "Down Arrow",
+        "/": "Slash",
     ]
 
     private static func spokenLabel(for keys: String) -> String {
