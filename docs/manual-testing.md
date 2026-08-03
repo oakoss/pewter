@@ -123,8 +123,8 @@ or the status item / panel / window layer.
 - [ ] TUI with its own select-to-copy (Claude Code in a terminal): select,
       double-tap within ~3 s → captures via the recent-clipboard assist;
       waiting longer than ~3 s with no selection → "No text selected"
-- [ ] Nothing selected + double-shift → status icon shows ✕, toast if panel
-      open, clipboard untouched
+- [ ] Nothing selected + double-shift → status icon shows ✕ and a "No text
+      selected" HUD appears near the caret (or mouse), clipboard untouched
 - [ ] Capture the same selection twice within ~2 s (double-tap fired twice,
       or tap then hotkey) → one note; when the second fire lands after the
       first completes, it re-highlights the existing note (a fire during
@@ -164,6 +164,23 @@ an AX answer delivers plain text that passes through untouched.
 - [ ] A huge rich selection → conversion happens first, then the length cap
       (note ends with … at 20k)
 - [ ] After a rich capture the previous clipboard contents still come back
+
+## Capture feedback (HUD)
+
+- [ ] Capture in TextEdit with the panel closed → a "Captured" capsule
+      appears just below the selection and fades out; the panel stays
+      closed and TextEdit keeps focus (keep typing — no keystroke is lost)
+- [ ] Capture a selection near the bottom of the screen → the HUD flips
+      above the selection instead of clipping offscreen
+- [ ] Capture in a browser or Ghostty (no focused-element AX bounds) → the
+      HUD anchors at the mouse pointer
+- [ ] Capture with the panel already open → the HUD still shows, and the
+      new note scrolls into view highlighted; the panel does not move
+- [ ] Two captures in quick succession → the second HUD replaces the first
+      and stays up its full duration (no early disappearance, none stuck)
+- [ ] Capture over a full-screen app → the HUD is visible above it
+- [ ] The HUD never takes clicks: mouse through where it showed while
+      fading → clicks land in the app underneath
 
 ## Status item menu
 
@@ -232,15 +249,15 @@ an AX answer delivers plain text that passes through untouched.
       at the original spot (round trip — exact only while the panel lands
       fully inside both displays; if a move has to clamp, the clamped
       frame becomes the new saved position)
-- [ ] Two displays: capture (double-tap or hotkey) with the mouse on
-      display B while the panel's saved frame is on A → the panel appears
-      on B with the new note highlighted
+- [ ] Two displays: capture (double-tap or hotkey) on display B while the
+      panel's saved frame is on A → the panel stays hidden; the "Captured"
+      HUD appears on B near the selection
 - [ ] Two displays: with the panel's saved frame on A, clicking the status
       item on either display shows it at its saved position on A (only the
       hotkey follows the active screen)
 - [ ] Esc: clears a multi-selection if one exists, else clears search if
-      non-empty, else hides the panel (capture → Esc still hides in one
-      press despite the new note being selected)
+      non-empty, else hides the panel (capture with the panel open → Esc
+      still hides in one press despite the new note being selected)
 - [ ] Keyboard: ↑/↓ select, Space toggles, Enter edits, Delete removes,
       Cmd+C copies item, Cmd+Shift+C copies list, Cmd+F focuses search
 - [ ] Select two or more notes → Cmd+Shift+M (or right-click → Merge
