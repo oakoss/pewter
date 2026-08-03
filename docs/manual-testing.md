@@ -255,9 +255,10 @@ an AX answer delivers plain text that passes through untouched.
       usable minimum (320×360) instead of clipping the list into a sliver
 - [ ] Ellipsis (…) button at the right of the search field renders bare
       (no bordered button background or chevron) and opens the launcher
-      menu from the non-activating panel: Settings…, Reveal Notes File in
-      Finder, Permissions…, Quit Pewter — every item fires, and Settings…
-      brings its window frontmost
+      menu from the non-activating panel with the same items and order as
+      the status item's menu: Reveal Notes File in Finder, then Settings…,
+      Permissions…, Copy Diagnostics, then Quit Pewter — every item fires,
+      and Settings… brings its window frontmost
 - [ ] Permissions… opens the onboarding window even when access is
       already granted (shows "You're all set")
 - [ ] Clicking the ellipsis does not steal focus from the frontmost app's
