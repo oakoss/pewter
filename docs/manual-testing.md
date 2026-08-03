@@ -452,6 +452,22 @@ an AX answer delivers plain text that passes through untouched.
 - [ ] Delete a note, then edit the notes file in another editor → Cmd+Z does
       nothing (an external edit clears the undo history)
 
+## Shortcut guide (Cmd+/)
+
+- [ ] Cmd+/ with the list focused (or nothing focused) → an overlay lists
+      the shortcut groups; the capture line matches the configured trigger
+- [ ] Cmd+/ while typing in search, quick-add, or a note editor does
+      nothing — the guide never covers a focused text field
+- [ ] While the guide is open: arrows, Space, Return, Delete, Cmd+Z, Cmd+C,
+      Cmd+F, Cmd+N do nothing; Esc closes the guide without touching the
+      selection or filter; Cmd+/ toggles it closed; a click anywhere closes
+- [ ] Cmd+W with the guide open hides the panel AND closes the guide — the
+      next summon shows the list, not the overlay
+- [ ] Change the tap modifier in Settings, reopen the guide → the capture
+      line reflects the new trigger
+- [ ] When a panel binding changes in code, the guide's table changes in the
+      same PR (check the diff touches ShortcutGuideView.swift)
+
 ## Redo (Shift-Cmd-Z)
 
 - [ ] Delete a multi-selection, Cmd+Z, Shift-Cmd-Z → all the notes vanish
