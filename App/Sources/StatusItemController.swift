@@ -37,10 +37,11 @@ final class StatusItemController: NSObject {
     /// Names the flash image so VoiceOver reads the state instead of an
     /// unlabeled button when the user navigates to the status item — and
     /// announces it, because a brief symbol swap in the menu bar is
-    /// invisible to a VoiceOver user who never navigates there. macOS only
-    /// speaks announcements from the frontmost app, so on the capture path
-    /// (source app frontmost) delivery is best-effort — the manual VO
-    /// checklist gates on what a live session actually speaks.
+    /// invisible to a VoiceOver user who never navigates there. macOS
+    /// speaks announcements only for the frontmost app, so this lands on
+    /// the status-item paths (Copy Diagnostics) and never on the capture
+    /// path, where the source app is frontmost by design and `CaptureSound`
+    /// carries the outcome instead.
     func flash(symbolName: String, description: String, duration: TimeInterval = 0.8) {
         guard let button = statusItem.button else { return }
         AccessibilityNotification.Announcement(description).post()

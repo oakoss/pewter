@@ -253,6 +253,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showCaptureFeedback(_ feedback: CaptureFeedback, anchor: CGRect?) {
         captureHUD?.show(feedback, anchor: anchor)
+        // The other two surfaces are silent for a VoiceOver user
+        // mid-capture: the HUD is visual, and macOS drops the flash's
+        // announcement because the source app, not Pewter, is frontmost.
+        CaptureSound.play(feedback)
         statusItemController?.flash(
             symbolName: feedback.symbolName,
             description: feedback.message,

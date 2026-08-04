@@ -516,11 +516,23 @@ an AX answer delivers plain text that passes through untouched.
       checkbox → they announce "Copy" and "Mark as done"/"Mark as not
       done", and the row itself still reads only the note text plus its
       value
-- [ ] GATING: capture from another app with VO running → the outcome
-      ("Captured", "Nothing selected", "Capture failed") is spoken. macOS
-      only speaks announcements from the frontmost app, and the capture
-      source is frontmost by design — if this does not speak, the
-      announcement design needs rework, not a checked box
+- [ ] GATING: capture from another app with VO running → the outcome is
+      audible without looking, as a distinct sound per result (captured /
+      nothing selected / capture failed), and the three are tellable apart
+      by ear. Speech is deliberately not the channel: macOS speaks
+      announcements only for the frontmost app and the capture source is
+      frontmost by design — if nothing is audible, the feedback design
+      needs rework, not a checked box
+- [ ] Two captures in quick succession with VO running → a repeat of the
+      same outcome restarts its sound; two different outcomes both stay
+      audible (losing the first would hide that a capture failed)
+- [ ] With VoiceOver's speech routed to a different output device than the
+      system default, capture → the sound follows the system default, so it
+      may be inaudible; accepted limitation, no in-process way to detect it
+- [ ] Capture with VO turned off → no sound (the HUD is the feedback;
+      capture stays silent for everyone else)
+- [ ] Turn VO on without relaunching Pewter, then capture → the sound
+      plays (the gate is read per capture, not cached at launch)
 - [ ] Copy Diagnostics from the status item with the panel open → the
       outcome is announced once, not twice (the toast suppresses its own
       announcement when the flash carried it)

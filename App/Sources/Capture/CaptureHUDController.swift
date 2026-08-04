@@ -6,8 +6,8 @@ import SwiftUI
 /// Transient capture feedback at the point of capture. The gesture fires
 /// while the user reads some other app, so the confirmation lands where
 /// they're looking and fades without stealing focus or opening the panel.
-/// VoiceOver feedback stays on the status-item flash, whose image names the
-/// same outcome.
+/// Purely visual: VoiceOver users get the outcome from `CaptureSound`,
+/// since macOS won't speak announcements from a background app.
 @MainActor
 final class CaptureHUDController {
     private static let logger = Logger.capture
@@ -34,8 +34,8 @@ final class CaptureHUDController {
         panel.ignoresMouseEvents = true
         panel.isReleasedWhenClosed = false
         panel.animationBehavior = .none
-        // VoiceOver feedback is the status-item flash; announcing this
-        // window appearing on every capture would double up.
+        // Decoration for sighted users; CaptureSound carries the outcome
+        // to VoiceOver, so there is nothing here worth announcing.
         panel.setAccessibilityElement(false)
     }
 
