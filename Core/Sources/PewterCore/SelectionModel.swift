@@ -133,10 +133,24 @@ public struct SelectionModel: Equatable, Sendable {
         }
     }
 
+    /// Advances the selection past a removal, keeping arrow keys anchored
+    /// where the user was working: selects the first survivor after the
+    /// removed block, else the last one before it, else clears. No-op when
+    /// the removal doesn't touch the selection — removing an unrelated row
+    /// must not hijack it. Call with the pre-removal order.
+    public mutating func removeAndAdvance(ids removed: Set<UUID>, order: [UUID]) {
+        guard !removed.isDisjoint(with: selected) else { return }
+        if let next = Self.survivor(afterRemoving: removed, order: order) {
+            select(next)
+        } else {
+            clear()
+        }
+    }
+
     /// The item to select after the given IDs are removed: the first survivor
     /// after the removed block, else the last one before it. Uses the
     /// pre-removal order.
-    public static func survivor(afterRemoving removed: Set<UUID>, order: [UUID]) -> UUID? {
+    private static func survivor(afterRemoving removed: Set<UUID>, order: [UUID]) -> UUID? {
         guard let lastRemoved = order.lastIndex(where: { removed.contains($0) }) else { return nil }
         if let after = order[(lastRemoved + 1)...].first(where: { !removed.contains($0) }) {
             return after
