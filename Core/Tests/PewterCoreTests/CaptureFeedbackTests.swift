@@ -24,4 +24,19 @@ struct CaptureFeedbackTests {
         #expect(CaptureFeedback.captureFailed.duration > CaptureFeedback.captured.duration)
         #expect(CaptureFeedback.nothingSelected.duration > CaptureFeedback.captured.duration)
     }
+
+    @Test func everyOutcomeSoundsDifferent() {
+        // The sound is the only capture feedback a VoiceOver user reliably
+        // gets, so two outcomes sharing one would make them indistinguishable.
+        // Distinctness is all this can prove — whether a name resolves to an
+        // actual sound is a runtime question, answered by CaptureSound's
+        // beep fallback rather than here.
+        let names = [
+            CaptureFeedback.captured.soundName,
+            CaptureFeedback.nothingSelected.soundName,
+            CaptureFeedback.captureFailed.soundName,
+        ]
+        #expect(Set(names).count == names.count)
+        #expect(names.allSatisfy { !$0.isEmpty })
+    }
 }

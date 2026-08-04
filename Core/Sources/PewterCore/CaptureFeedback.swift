@@ -32,4 +32,19 @@ public enum CaptureFeedback: Equatable, Sendable {
         case .nothingSelected, .captureFailed: 2
         }
     }
+
+    /// Name of the system sound that carries this outcome to a VoiceOver
+    /// user. Capture fires while another app is frontmost, and macOS speaks
+    /// accessibility announcements only for the frontmost app, so the
+    /// spoken outcome never arrives; a sound reaches the user regardless of
+    /// who is frontmost and doesn't cut across whatever VoiceOver is
+    /// currently reading. Distinct per outcome — telling them apart by ear
+    /// is the whole point.
+    public var soundName: String {
+        switch self {
+        case .captured: "Pop"
+        case .nothingSelected: "Tink"
+        case .captureFailed: "Basso"
+        }
+    }
 }
