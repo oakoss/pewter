@@ -312,6 +312,10 @@ private enum DisplayTextCache {
     private static let cache: NSCache<NSString, NSAttributedString> = {
         let cache = NSCache<NSString, NSAttributedString>()
         cache.countLimit = 2000
+        // Entries scale with note length (key and value each hold the
+        // text), so bound bytes too — 8 MB of source text, evicted LRU,
+        // on top of NSCache's own memory-pressure eviction.
+        cache.totalCostLimit = 8_000_000
         return cache
     }()
 
@@ -326,7 +330,7 @@ private enum DisplayTextCache {
         let built = NSAttributedString(
             attributedString: build(text: text, done: done, base: base)
         )
-        cache.setObject(built, forKey: key)
+        cache.setObject(built, forKey: key, cost: text.utf8.count)
         return built
     }
 
