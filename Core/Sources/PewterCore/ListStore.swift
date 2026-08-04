@@ -13,6 +13,10 @@ public final class ListStore {
 
     public private(set) var document: MarkdownDocument
     private let storage: FileStorage?
+    /// Which generation `document` is on. Handed back on every save so the
+    /// storage can refuse one built before an external change it has already
+    /// adopted but this store has not applied yet.
+    private var generation = FileStorage.DocumentGeneration.initial
 
     /// One undoable mutation: the lines it removed, plus any line it
     /// inserted (merge), each with its recorded index. Undo removes the
@@ -31,8 +35,17 @@ public final class ListStore {
         document.items
     }
 
-    public init(document: MarkdownDocument = MarkdownDocument(), storage: FileStorage? = nil) {
+    public init(document: MarkdownDocument = MarkdownDocument()) {
         self.document = document
+        storage = nil
+    }
+
+    /// Private so `loadFrom` is the only way to pair a store with a storage.
+    /// Any other pairing starts the store on the baseline generation; against
+    /// a storage that has already adopted an external change, every save the
+    /// store makes would then be refused for the life of the process.
+    private init(storage: FileStorage) {
+        document = MarkdownDocument()
         self.storage = storage
     }
 
@@ -40,17 +53,19 @@ public final class ListStore {
     /// is installed before the first load so no change window is missed.
     public static func loadFrom(storage: FileStorage) -> ListStore {
         let store = ListStore(storage: storage)
-        storage.setOnExternalChange { [weak store] newDocument in
+        storage.setOnExternalChange { [weak store] newDocument, generation in
             // DispatchQueue.main is FIFO; unstructured Tasks are not, and two
             // rapid external edits applied out of order would wedge the UI on
             // stale content (the hash guard suppresses any correction).
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    store?.applyExternalChange(newDocument)
+                    store?.applyExternalChange(newDocument, generation: generation)
                 }
             }
         }
-        store.document = storage.load()
+        let loaded = storage.load()
+        store.document = loaded.document
+        store.generation = loaded.generation
         return store
     }
 
@@ -58,7 +73,15 @@ public final class ListStore {
     /// over any local edit that raced it — its scheduled save must not fire —
     /// and undo/redo history is cleared: the recorded positions describe a
     /// document that no longer exists.
-    public func applyExternalChange(_ newDocument: MarkdownDocument) {
+    ///
+    /// No default for `generation`: defaulting to `.initial` is the worst
+    /// choice available, since a store left on the baseline while the
+    /// storage has moved on has every save refused for the life of the
+    /// process.
+    public func applyExternalChange(
+        _ newDocument: MarkdownDocument,
+        generation: FileStorage.DocumentGeneration
+    ) {
         let before = document.items.count
         let after = newDocument.items.count
         Logger.storage
@@ -66,10 +89,7 @@ public final class ListStore {
         document = newDocument
         deletedBatches.removeAll()
         redoBatches.removeAll()
-        // Last, so saving reopens only once this store holds the new
-        // document. Acknowledging first would be correct solely because these
-        // statements happen to run without suspension.
-        storage?.acknowledgeExternalChange()
+        self.generation = generation
     }
 
     @discardableResult
@@ -251,10 +271,10 @@ public final class ListStore {
     }
 
     public func flush() {
-        storage?.saveNow(document)
+        storage?.saveNow(document, generation: generation)
     }
 
     private func persist() {
-        storage?.scheduleSave(document)
+        storage?.scheduleSave(document, generation: generation)
     }
 }
