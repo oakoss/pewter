@@ -289,6 +289,12 @@ an AX answer delivers plain text that passes through untouched.
       new note is visible
 - [ ] Delete a mid-list note with the tail off-screen → the viewport stays
       put (no jump to the end of the list)
+- [ ] With 300+ notes (populate a scratch copy of the notes file), typing
+      in search or quick-add keeps up with the keystrokes — no visible
+      lag from the eager list re-rendering every row
+- [ ] Switch System Settings → Appearance between Light and Dark with the
+      panel open → note text, strikethrough, and link color all follow
+      (cached renders hold dynamic colors, not resolved ones)
 - [ ] Capture with the panel hidden and the list scrolled to the top,
       wait a few seconds, summon the panel → the list is scrolled to the
       new note (the reveal target survives until the next summon)
