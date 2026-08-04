@@ -40,6 +40,14 @@ struct PanelRootView: View {
         visibleItems.filter { selection.isSelected($0.id) }
     }
 
+    /// The selection every action reads: the visible projection's IDs, never
+    /// the raw selected set — a stale selection (filter change, external
+    /// edit) must not act on rows that aren't on screen. Pruning keeps the
+    /// model tidy; this keeps the actions correct.
+    private var selectedIDs: Set<UUID> {
+        Set(selectedItems.map(\.id))
+    }
+
     var body: some View {
         // One grouping walk per render; the list and the selection pruning
         // below derive from it.
@@ -141,11 +149,12 @@ struct PanelRootView: View {
             // Same focus rule as Cmd+A: in a text field Cmd+E keeps its
             // field meaning (use selection for find).
             guard !showsShortcutGuide else { return .handled }
+            let ids = selectedIDs
             guard press.modifiers.contains(.command),
                   press.modifiers.isDisjoint(with: [.shift, .option, .control]),
                   focus == .list || focus == nil,
-                  !selection.isEmpty else { return .ignored }
-            toggleExpansion(selection.selected)
+                  !ids.isEmpty else { return .ignored }
+            toggleExpansion(ids)
             return .handled
         }
         .onKeyPress(keys: ["f", "F"], phases: .down) { press in
@@ -194,22 +203,25 @@ struct PanelRootView: View {
             return .handled
         }
         .onKeyPress(.escape) {
-            // Ladder: close the guide, then drop a multi-selection, then the
-            // filter; otherwise fall through to the panel's cancelOperation
-            // (hides it). A single selection doesn't count — quick-add
-            // selects what it added, and capture-then-Esc must still hide
-            // the panel in one press.
-            if showsShortcutGuide {
+            // The ladder itself lives (and is tested) in PanelCommands;
+            // .hidePanel falls through to the panel's cancelOperation.
+            switch PanelCommands.escapeAction(
+                guideShowing: showsShortcutGuide,
+                selectionIsMultiple: selectedIDs.count > 1,
+                filterActive: !uiState.query.isEmpty
+            ) {
+            case .closeGuide:
                 showsShortcutGuide = false
                 return .handled
-            }
-            if selection.isMultiple {
+            case .clearSelection:
                 selection.clear()
                 return .handled
+            case .clearFilter:
+                uiState.query = ""
+                return .handled
+            case .hidePanel:
+                return .ignored
             }
-            guard !uiState.query.isEmpty else { return .ignored }
-            uiState.query = ""
-            return .handled
         }
         .onChange(of: sections.flatMap(\.items).map(\.id)) { _, newOrder in
             selection.prune(order: newOrder)
@@ -276,7 +288,7 @@ struct PanelRootView: View {
     private func itemList(_ sections: [MarkdownDocument.Section]) -> some View {
         // Hoisted: computing this per row would walk the document once per
         // selected row on every render.
-        let selectionMarksDone = !store.allDone(ids: selection.selected)
+        let selectionMarksDone = !store.allDone(ids: selectedIDs)
         // During a search, a returned empty section IS the match (its heading
         // matched), so "No matches" must not render beneath it.
         let showsEmptyState = uiState.query.isEmpty
@@ -324,7 +336,7 @@ struct PanelRootView: View {
                                 ),
                                 menu: ItemRowMenu(
                                     marksDone: isRowSelected ? selectionMarksDone : !item.done,
-                                    canMerge: selection.isMultiple && isRowSelected,
+                                    canMerge: selectedIDs.count > 1 && isRowSelected,
                                     copy: { copy(targets(for: item)) },
                                     copyAsList: { copyAsList(targets(for: item)) },
                                     toggleDone: { toggleDone(targets(for: item)) },
@@ -499,45 +511,39 @@ struct PanelRootView: View {
     }
 
     private func toggleSelected() -> KeyPress.Result {
-        guard focus == .list, !selection.isEmpty else { return .ignored }
-        store.toggleDone(ids: selection.selected)
+        let ids = selectedIDs
+        guard focus == .list, !ids.isEmpty else { return .ignored }
+        store.toggleDone(ids: ids)
         return .handled
     }
 
     private func editSelected() -> KeyPress.Result {
-        guard focus == .list, let id = selection.single,
-              let item = visibleItems.first(where: { $0.id == id }) else { return .ignored }
+        let items = selectedItems
+        guard focus == .list, items.count == 1, let item = items.first else { return .ignored }
         beginEdit(item)
         return .handled
     }
 
     private func mergeSelected() -> KeyPress.Result {
-        guard selection.isMultiple,
-              let merged = store.merge(ids: selection.selected) else { return .ignored }
+        let ids = selectedIDs
+        guard ids.count > 1, let merged = store.merge(ids: ids) else { return .ignored }
         selection.select(merged.id)
         uiState.reveal(merged.id)
         return .handled
     }
 
     private func deleteSelected() -> KeyPress.Result {
-        guard focus == .list, !selection.isEmpty else { return .ignored }
-        delete(ids: selection.selected)
+        let ids = selectedIDs
+        guard focus == .list, !ids.isEmpty else { return .ignored }
+        delete(ids: ids)
         return .handled
     }
 
     private func delete(ids: Set<UUID>) {
-        // Reselecting a neighbor keeps arrow keys anchored where the user
-        // was working — but only when the deletion touched the selection;
-        // menu-deleting an unrelated row must not hijack it.
-        let touchesSelection = !ids.isDisjoint(with: selection.selected)
-        let next = touchesSelection ? SelectionModel.survivor(afterRemoving: ids, order: visibleOrder) : nil
+        // Advance before the store mutates: the survivor rule needs the
+        // pre-removal order.
+        selection.removeAndAdvance(ids: ids, order: visibleOrder)
         store.delete(ids: ids)
-        guard touchesSelection else { return }
-        if let next {
-            selection.select(next)
-        } else {
-            selection.clear()
-        }
     }
 
     private func undoDelete() -> KeyPress.Result {
@@ -580,10 +586,9 @@ struct PanelRootView: View {
     }
 
     private func copyList() -> KeyPress.Result {
-        // A multi-selection narrows the list copy to it; otherwise the whole
-        // visible list. Never write an empty list — it would wipe the user's
-        // clipboard for nothing.
-        let items = selection.isMultiple ? selectedItems : visibleItems
+        // Never write an empty list — it would wipe the user's clipboard
+        // for nothing.
+        let items = PanelCommands.listCopyTargets(selected: selectedItems, visible: visibleItems)
         guard !items.isEmpty else { return .ignored }
         copyAsList(items)
         return .handled

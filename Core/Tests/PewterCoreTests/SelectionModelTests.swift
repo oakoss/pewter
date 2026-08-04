@@ -185,23 +185,62 @@ struct SelectionModelTests {
         #expect(model.lead == nil)
     }
 
-    @Test func survivorPrefersItemAfterRemovedBlock() {
-        let next = SelectionModel.survivor(afterRemoving: [ids[1], ids[2]], order: ids)
-        #expect(next == ids[3])
+    @Test func removeAndAdvancePrefersItemAfterRemovedBlock() {
+        var model = SelectionModel()
+        model.select(ids[1])
+        model.removeAndAdvance(ids: [ids[1], ids[2]], order: ids)
+        #expect(model.selected == [ids[3]])
+        // Anchor and lead move too — the next arrow key must step from the
+        // survivor, not the list edge.
+        #expect(model.anchor == ids[3])
+        #expect(model.lead == ids[3])
     }
 
-    @Test func survivorFallsBackToItemBefore() {
-        let next = SelectionModel.survivor(afterRemoving: [ids[4], ids[5]], order: ids)
-        #expect(next == ids[3])
+    @Test func removeAndAdvanceFallsBackToItemBefore() {
+        var model = SelectionModel()
+        model.select(ids[4])
+        model.removeAndAdvance(ids: [ids[4], ids[5]], order: ids)
+        #expect(model.selected == [ids[3]])
+        #expect(model.anchor == ids[3])
+        #expect(model.lead == ids[3])
     }
 
-    @Test func survivorOfEverythingIsNil() {
-        #expect(SelectionModel.survivor(afterRemoving: Set(ids), order: ids) == nil)
-        #expect(SelectionModel.survivor(afterRemoving: [], order: ids) == nil)
+    @Test func removeAndAdvanceCollapsesPartiallyRemovedMultiSelection() {
+        // Current contract, pinned deliberately: removing one member of a
+        // multi-selection collapses to the removed block's neighbor, even
+        // when other selected rows survive. Changing this rule is a UX
+        // decision, not a refactor.
+        var model = SelectionModel()
+        model.select(ids[1])
+        model.toggle(ids[3])
+        model.removeAndAdvance(ids: [ids[1]], order: ids)
+        #expect(model.selected == [ids[2]])
+        #expect(model.anchor == ids[2])
+        #expect(model.lead == ids[2])
     }
 
-    @Test func survivorHandlesDisjointRemovals() {
-        let next = SelectionModel.survivor(afterRemoving: [ids[0], ids[5]], order: ids)
-        #expect(next == ids[4])
+    @Test func removeAndAdvanceClearsWhenNothingSurvives() {
+        var model = SelectionModel()
+        model.selectAll(order: ids)
+        model.removeAndAdvance(ids: Set(ids), order: ids)
+        #expect(model.isEmpty)
+        #expect(model.anchor == nil)
+        #expect(model.lead == nil)
+    }
+
+    @Test func removeAndAdvanceHandlesDisjointRemovals() {
+        var model = SelectionModel()
+        model.select(ids[0])
+        model.removeAndAdvance(ids: [ids[0], ids[5]], order: ids)
+        #expect(model.selected == [ids[4]])
+    }
+
+    @Test func removeAndAdvanceIgnoresRemovalsOutsideTheSelection() {
+        var model = SelectionModel()
+        model.select(ids[3])
+        model.removeAndAdvance(ids: [ids[0]], order: ids)
+        #expect(model.selected == [ids[3]])
+        #expect(model.anchor == ids[3])
+        #expect(model.lead == ids[3])
     }
 }
