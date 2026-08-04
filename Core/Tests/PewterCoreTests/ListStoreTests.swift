@@ -188,7 +188,7 @@ struct ListStoreTests {
         store.delete(ids: [victim.id])
         _ = store.undoDelete()
 
-        store.applyExternalChange(MarkdownDocument.parse("- [ ] rewritten outside\n"))
+        store.applyExternalChange(MarkdownDocument.parse("- [ ] rewritten outside\n"), generation: .initial)
 
         #expect(store.redo() == nil)
         #expect(store.items.map(\.text) == ["rewritten outside"])
@@ -349,7 +349,7 @@ struct ListStoreTests {
         store.add(text: "survives")
         store.flush()
 
-        let reloaded = FileStorage(fileURL: url).load()
+        let reloaded = FileStorage(fileURL: url).load().document
         #expect(reloaded.items.map(\.text) == ["survives"])
     }
 
@@ -598,7 +598,7 @@ struct ListStoreTests {
         _ = store.undoDelete()
         store.flush()
 
-        let reloaded = FileStorage(fileURL: url).load()
+        let reloaded = FileStorage(fileURL: url).load().document
         #expect(reloaded.items.map(\.text) == ["keep me"])
     }
 
@@ -607,7 +607,7 @@ struct ListStoreTests {
         let item = try #require(store.add(text: "deleted in app"))
         store.delete(ids: [item.id])
 
-        store.applyExternalChange(MarkdownDocument.parse("- [ ] rewritten outside\n"))
+        store.applyExternalChange(MarkdownDocument.parse("- [ ] rewritten outside\n"), generation: .initial)
         #expect(store.items.map(\.text) == ["rewritten outside"])
         #expect(store.undoDelete().isEmpty)
     }
@@ -651,5 +651,65 @@ struct ListStoreTests {
         let reloaded = ListStore.loadFrom(storage: FileStorage(fileURL: url))
         #expect(reloaded.items.map(\.text) == ["a", "b"])
         #expect(reloaded.items.map(\.done) == [true, true])
+    }
+
+    /// Completes the loop the storage tests stop halfway through: an external
+    /// edit lands, the store applies it, and the user keeps typing. The store
+    /// has to carry the generation it was handed or every save from here on is
+    /// refused for the life of the process, with the file silently frozen.
+    @Test func editsAfterAnExternalReloadStillReachDisk() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let store = ListStore.loadFrom(storage: FileStorage(fileURL: url, debounceInterval: 0.05))
+        store.add(text: "original")
+        store.flush()
+
+        try Data("- [ ] edited outside\n".utf8).write(to: url, options: .atomic)
+        let deadline = ContinuousClock.now + .seconds(2)
+        while store.items.map(\.text) != ["edited outside"], ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(store.items.map(\.text) == ["edited outside"])
+
+        // The debounced path every user edit takes.
+        store.add(text: "typed after reload")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(FileStorage(fileURL: url).load().document.items.map(\.text)
+            == ["edited outside", "typed after reload"])
+
+        // And the quit flush.
+        store.add(text: "typed before quit")
+        store.flush()
+        #expect(FileStorage(fileURL: url).load().document.items.map(\.text)
+            == ["edited outside", "typed after reload", "typed before quit"])
+    }
+
+    /// A store built against a storage that has already adopted an external
+    /// change must take the generation `load()` hands back, or it starts
+    /// behind and nothing can ever move it forward.
+    @Test func aStoreRebuiltAfterAnAdoptionSavesOnTheLoadedGeneration() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        var seeded = MarkdownDocument()
+        seeded.append(Item(text: "original"))
+        storage.saveNow(seeded, generation: .initial)
+
+        // An earlier store adopts an external edit, then goes away.
+        storage.setOnExternalChange { _, _ in }
+        try Data("- [ ] outside edit\n".utf8).write(to: url, options: .atomic)
+        storage.saveNow(seeded, generation: .initial)
+        try await Task.sleep(for: .milliseconds(150))
+
+        let store = ListStore.loadFrom(storage: storage)
+        #expect(store.items.map(\.text) == ["outside edit"])
+        store.add(text: "typed after rebuild")
+        store.flush()
+        #expect(FileStorage(fileURL: url).load().document.items.map(\.text)
+            == ["outside edit", "typed after rebuild"])
     }
 }

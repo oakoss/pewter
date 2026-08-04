@@ -15,6 +15,27 @@ public final class FileStorage: @unchecked Sendable {
         case unreadable
     }
 
+    /// Which document a save is built on. The storage hands one out with
+    /// every external change it adopts and takes it back on every save, so a
+    /// save that predates an adoption is refused rather than trusted.
+    ///
+    /// Only this file can mint one, so a caller cannot fabricate a newer
+    /// generation to get a stale save accepted. `.initial` is public and so
+    /// can be named by anyone, but it is safe for the same reason: these only
+    /// ever move forward, so the baseline matches exactly once — before the
+    /// first delivery, which is when claiming it is true. Rewinding the
+    /// counter anywhere would break that and let one value be minted twice.
+    public struct DocumentGeneration: Equatable, Sendable {
+        fileprivate let value: UInt64
+
+        /// Before any external change: what a freshly loaded document is on.
+        public static let initial = DocumentGeneration(value: 0)
+
+        fileprivate var next: DocumentGeneration {
+            DocumentGeneration(value: value + 1)
+        }
+    }
+
     public static let defaultDebounceInterval: TimeInterval = 0.5
 
     private let logger = Logger.storage
@@ -26,21 +47,17 @@ public final class FileStorage: @unchecked Sendable {
     private let eventQueue = DispatchQueue(label: "com.oakoss.Pewter.storage-events")
     private let debounceInterval: TimeInterval
     private let watchesExternalChanges: Bool
-    private var onExternalChange: (@Sendable (MarkdownDocument) -> Void)?
+    private var onExternalChange: (@Sendable (MarkdownDocument, DocumentGeneration) -> Void)?
     private var onHealthChange: (@Sendable (Health) -> Void)?
     private var pendingSave: DispatchWorkItem?
     /// Digest of the bytes the storage believes are on disk — its own last
     /// write, or content it adopted from an external edit. `nil` means it
     /// holds no belief, so anything on disk is content it has never seen.
     private var lastKnownDiskHash: SHA256Digest?
-    /// Adoptions handed to the store but not yet applied. The handoff is
-    /// asynchronous, so until it lands every document a caller could save
-    /// still predates the adopted content — writing one would destroy the
-    /// edit that was just protected. A count rather than a flag because
-    /// rapid external edits adopt more than once before the first is
-    /// applied, and the earlier acknowledgement must not clear the gate the
-    /// later one is holding.
-    private var unacknowledgedAdoptions = 0
+    /// Generation the storage last handed out. `write()` refuses a save built
+    /// on an earlier one, since the handoff to the store is asynchronous and
+    /// it may not have applied yet.
+    private var currentGeneration = DocumentGeneration.initial
     /// Keeps the detached-storage diagnostic to once per stretch of
     /// detachment rather than once per refused save.
     private var loggedDetachedAdoption = false
@@ -102,8 +119,13 @@ public final class FileStorage: @unchecked Sendable {
     }
 
     /// Sets the handler called with the freshly parsed document when the file
-    /// changes on disk from outside the app. Invoked on an arbitrary queue.
-    public func setOnExternalChange(_ handler: @escaping @Sendable (MarkdownDocument) -> Void) {
+    /// changes on disk from outside the app, and the generation that document
+    /// is on. Invoked on an arbitrary queue. Saving anything built on an
+    /// earlier generation is refused, so the handler must keep the one it was
+    /// given and hand it back on every later save.
+    public func setOnExternalChange(
+        _ handler: @escaping @Sendable (MarkdownDocument, DocumentGeneration) -> Void
+    ) {
         queue.sync { onExternalChange = handler }
     }
 
@@ -124,78 +146,88 @@ public final class FileStorage: @unchecked Sendable {
 
     // MARK: - Load / save
 
-    public func load() -> MarkdownDocument {
-        var document = MarkdownDocument()
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            if let data = try? Data(contentsOf: fileURL), let text = String(data: data, encoding: .utf8) {
-                queue.sync { lastKnownDiskHash = SHA256.hash(data: data) }
-                document = MarkdownDocument.parse(text)
-            } else {
-                // The file exists but can't be read (permissions, non-UTF8).
-                // Proceeding with an empty document and live saves would
-                // overwrite the user's data — refuse to write instead.
-                logger.error("notes file exists but is unreadable; suspending saves to protect it")
-                queue.sync { setHealth(.unreadable) }
+    /// Reads the file and hands back the generation that document is on, so
+    /// a store built from it starts level with the storage rather than behind
+    /// it. A store that started behind could never catch up: the known hash
+    /// suppresses further deliveries, and a refused save returns before it
+    /// would adopt anything.
+    ///
+    /// Rewinding to the baseline here would be the same repair, but
+    /// generations only move forward: a stale holder of the earlier value
+    /// would then compare equal and overwrite content nothing had applied.
+    ///
+    /// The read runs on the queue, so a watcher event can't adopt between
+    /// reading the bytes and recording them and leave the newer hash and
+    /// generation overwritten by this older snapshot.
+    ///
+    /// The recorded digest is replaced unconditionally, so loading over an
+    /// absent or unreadable file clears it rather than leaving one that names
+    /// bytes no longer there.
+    public func load() -> (document: MarkdownDocument, generation: DocumentGeneration) {
+        queue.sync {
+            var document = MarkdownDocument()
+            var loadedHash: SHA256Digest?
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                if let data = try? Data(contentsOf: fileURL), let text = String(data: data, encoding: .utf8) {
+                    loadedHash = SHA256.hash(data: data)
+                    document = MarkdownDocument.parse(text)
+                } else {
+                    // The file exists but can't be read (permissions, non-UTF8).
+                    // Proceeding with an empty document and live saves would
+                    // overwrite the user's data — refuse to write instead.
+                    logger.error("notes file exists but is unreadable; suspending saves to protect it")
+                    setHealth(.unreadable)
+                }
             }
+            lastKnownDiskHash = loadedHash
+            rewatch()
+            return (document, currentGeneration)
         }
-        queue.sync { rewatch() }
-        return document
     }
 
     /// Neither entry point gates on `health`: the write consults the file
     /// itself, which is a stricter test and — unlike a cached health value —
     /// re-evaluates every time, so a repaired file resumes saving on its own.
-    public func scheduleSave(_ document: MarkdownDocument) {
+    public func scheduleSave(_ document: MarkdownDocument, generation: DocumentGeneration) {
         queue.sync {
             pendingSave?.cancel()
             let work = DispatchWorkItem { [weak self] in
-                self?.write(document)
+                self?.write(document, generation: generation)
             }
             pendingSave = work
             queue.asyncAfter(deadline: .now() + debounceInterval, execute: work)
         }
     }
 
-    /// Called by the store once it has applied an external change — exactly
-    /// once per delivery, since each call clears only its own adoption.
-    /// Until every delivery is acknowledged saves are refused outright: the
-    /// handoff is asynchronous, so any document a caller holds still
-    /// predates the adopted content and saving it would overwrite the edit.
-    public func acknowledgeExternalChange() {
+    public func saveNow(_ document: MarkdownDocument, generation: DocumentGeneration) {
         queue.sync {
             pendingSave?.cancel()
             pendingSave = nil
-            guard unacknowledgedAdoptions > 0 else {
-                // Counting calls only holds while they pair 1:1 with
-                // deliveries. An unmatched one would bank credit against a
-                // real adoption still in flight and open the gate on it, so
-                // it is a caller bug, not something to absorb quietly.
-                assertionFailure("acknowledged an external change that was never delivered")
-                logger.error("acknowledged an external change that was never delivered; ignoring")
-                return
-            }
-            unacknowledgedAdoptions -= 1
+            write(document, generation: generation)
         }
     }
 
-    public func saveNow(_ document: MarkdownDocument) {
-        queue.sync {
-            pendingSave?.cancel()
-            pendingSave = nil
-            write(document)
-        }
-    }
-
-    private func write(_ document: MarkdownDocument) {
+    private func write(_ document: MarkdownDocument, generation: DocumentGeneration) {
         guard let data = document.serialized().data(using: .utf8) else {
             assertionFailure("notes document not encodable as UTF-8")
             logger.error("notes document not encodable as UTF-8; save skipped")
             return
         }
-        guard unacknowledgedAdoptions == 0 else {
-            if !loggedRefusedSave {
+        guard generation == currentGeneration else {
+            let built = generation.value
+            let current = currentGeneration.value
+            if built > current {
+                // Can't happen without a bug, since generations only rise
+                // and only this file mints them. Unthrottled: being rare is
+                // the whole signal.
+                assertionFailure("save carries a generation this storage never handed out")
+                logger.error("save refused: generation \(built) was never handed out (current \(current))")
+            } else if !loggedRefusedSave {
                 loggedRefusedSave = true
-                logger.warning("save refused: an adopted external change has not reached the store yet")
+                // The values separate a store one delivery behind, which
+                // catches up, from one stranded on a generation that can
+                // never match again.
+                logger.warning("save refused: built on generation \(built), current is \(current)")
             }
             return
         }
@@ -203,12 +235,17 @@ public final class FileStorage: @unchecked Sendable {
         switch inspectOnDisk() {
         case .absent, .ours:
             resumeSavesIfSuspended()
-        case .unreadable:
+        case let .unreadable(reason):
             // Same protection as at load: never overwrite content the app
             // can't read, so can't have seen. Re-arm on the way out — landing
             // here at all is evidence the watcher missed the change that
             // broke the file, and without a watcher nothing else re-reads it.
-            logger.error("notes file is unreadable at save time; suspending saves to protect it")
+            // Logged on the transition: unlike an adoption this neither bumps
+            // the generation nor changes the hash, so every later save
+            // re-enters and would repeat the line for as long as it lasts.
+            if currentHealth != .unreadable {
+                logger.error("notes file is unreadable at save time (\(reason)); suspending saves to protect it")
+            }
             rewatch()
             setHealth(.unreadable)
             return
@@ -249,7 +286,10 @@ public final class FileStorage: @unchecked Sendable {
         case absent
         /// The bytes the storage last saw; overwriting them loses nothing.
         case ours
-        case unreadable
+        /// `reason` travels rather than being logged where it is found: the
+        /// remedy differs per cause (fix permissions vs re-save as UTF-8) and
+        /// the caller logs it once per suspension, not once per refused save.
+        case unreadable(reason: String)
         /// Content the storage has never seen, which includes the
         /// never-loaded case where it holds no belief about the file at all.
         case foreign(text: String, hash: SHA256Digest)
@@ -265,15 +305,10 @@ public final class FileStorage: @unchecked Sendable {
             // between this read and any prior existence check; only a file
             // that is present and still unreadable suspends saves.
             guard FileManager.default.fileExists(atPath: fileURL.path) else { return .absent }
-            logger.error("cannot read notes file at save time: \(error.localizedDescription)")
-            return .unreadable
+            return .unreadable(reason: error.localizedDescription)
         }
         guard let text = String(data: data, encoding: .utf8) else {
-            // Distinct from the throw above: the remedy is re-saving the file
-            // as UTF-8, not fixing permissions, and the caller's message
-            // can't tell them apart.
-            logger.error("notes file is not valid UTF-8 at save time")
-            return .unreadable
+            return .unreadable(reason: "not valid UTF-8")
         }
         let hash = SHA256.hash(data: data)
         return hash == lastKnownDiskHash ? .ours : .foreign(text: text, hash: hash)
@@ -282,8 +317,9 @@ public final class FileStorage: @unchecked Sendable {
     /// Takes what is on disk as the truth and hands it to the store — an
     /// edit, or an empty document for a deletion. External changes win: the
     /// app's copy is always re-derivable from the file, and the reverse
-    /// isn't. Any queued save is dropped with it, since it holds a document
-    /// whose write would undo the change just adopted.
+    /// isn't. Dropping the queued save is an optimization rather than the
+    /// protection — it carries the superseded generation, so it would be
+    /// refused at the write regardless.
     ///
     /// With no store attached, nothing is recorded as seen. Leaving the hash
     /// stale keeps every later write re-inspecting the file and refusing —
@@ -310,8 +346,15 @@ public final class FileStorage: @unchecked Sendable {
         }
         loggedDetachedAdoption = false
         lastKnownDiskHash = hash
-        unacknowledgedAdoptions += 1
-        eventQueue.async { onExternalChange(document) }
+        // Bumped only where the content is handed over, so a storage with
+        // nobody to hand it to leaves the generation alone and keeps
+        // re-inspecting an edit, rather than stranding every later save on a
+        // generation nothing was told about. A deletion is not covered: it
+        // leaves nothing on disk to re-inspect, so the next write recreates
+        // the file (pw-px7).
+        currentGeneration = currentGeneration.next
+        let generation = currentGeneration
+        eventQueue.async { onExternalChange(document, generation) }
     }
 
     /// The content a suspension was protecting is readable again, or gone.
