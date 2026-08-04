@@ -578,6 +578,10 @@ an AX answer delivers plain text that passes through untouched.
 - [ ] `chmod 000` the notes file, relaunch → red "saving is off" banner; the
       file's bytes are untouched by any in-app edit; `chmod 644` + relaunch
       recovers
+- [ ] `chmod 000` the notes file with the app still running (a mode change
+      fires no watcher event), then add a note → the banner appears without a
+      relaunch and the file's bytes are untouched; `chmod 644` and add
+      another note → saving resumes, still without a relaunch
 - [ ] Quit immediately after adding an item → item survived (flush on quit)
 - [ ] An item with a blank line in the middle (captured multi-paragraph
       prompt) survives an external editor that strips trailing whitespace

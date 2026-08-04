@@ -59,7 +59,6 @@ public final class ListStore {
     /// and undo/redo history is cleared: the recorded positions describe a
     /// document that no longer exists.
     public func applyExternalChange(_ newDocument: MarkdownDocument) {
-        storage?.cancelPendingSave()
         let before = document.items.count
         let after = newDocument.items.count
         Logger.storage
@@ -67,6 +66,10 @@ public final class ListStore {
         document = newDocument
         deletedBatches.removeAll()
         redoBatches.removeAll()
+        // Last, so saving reopens only once this store holds the new
+        // document. Acknowledging first would be correct solely because these
+        // statements happen to run without suspension.
+        storage?.acknowledgeExternalChange()
     }
 
     @discardableResult
