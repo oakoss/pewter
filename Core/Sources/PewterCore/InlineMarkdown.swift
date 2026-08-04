@@ -9,8 +9,9 @@ import os
 public enum InlineMarkdown {
     private static let logger = Logger.panel
 
-    /// Parsing runs on every render of a failing note; once per distinct
-    /// text keeps the trail without flooding the log.
+    /// A failing note re-parses on cache misses (done toggles, text-size
+    /// changes); once per distinct text keeps the trail without flooding
+    /// the log.
     private static var loggedFailures: Set<Int> = []
 
     public static func runs(from text: String) -> [RichTextRun] {

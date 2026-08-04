@@ -292,17 +292,55 @@ struct ItemRow: View {
         .help(isExpanded ? "Collapse" : "Expand")
     }
 
-    /// Core's parse (`InlineMarkdown`) resolved to AppKit attributes —
-    /// the link hit-testing lives in an `NSTextView`, which reads font
-    /// traits, not presentation intents.
     private var displayText: NSAttributedString {
+        DisplayTextCache.rendered(text: item.text, done: item.done)
+    }
+}
+
+/// Core's parse (`InlineMarkdown`) resolved to AppKit attributes — the link
+/// hit-testing lives in an `NSTextView`, which reads font traits, not
+/// presentation intents. Cached across rows and renders: the eager list
+/// re-renders every row on each keystroke, and parse + attributed assembly
+/// measured ~22 ms per full pass at 300 notes (pw-6i8) against 0.1 ms for
+/// the same pass memoized. The key carries everything the output depends
+/// on except appearance: the semantic colors are dynamic providers that
+/// resolve against the drawing appearance, so a cached string follows a
+/// light/dark switch on its own. The base font size is keyed, so a system
+/// text-size change can't serve stale fonts.
+@MainActor
+private enum DisplayTextCache {
+    private static let cache: NSCache<NSString, NSAttributedString> = {
+        let cache = NSCache<NSString, NSAttributedString>()
+        cache.countLimit = 2000
+        // Entries scale with note length (key and value each hold the
+        // text), so bound bytes too — 8 MB of source text, evicted LRU,
+        // on top of NSCache's own memory-pressure eviction.
+        cache.totalCostLimit = 8_000_000
+        return cache
+    }()
+
+    static func rendered(text: String, done: Bool) -> NSAttributedString {
         let base = NSFont.preferredFont(forTextStyle: .body)
+        let key = "\(base.pointSize)|\(done ? 1 : 0)|\(text)" as NSString
+        if let cached = cache.object(forKey: key) {
+            return cached
+        }
+        // Immutable copy: the cached instance is shared across rows and
+        // long-lived, so it must not be the mutable builder result.
+        let built = NSAttributedString(
+            attributedString: build(text: text, done: done, base: base)
+        )
+        cache.setObject(built, forKey: key, cost: text.utf8.count)
+        return built
+    }
+
+    private static func build(text: String, done: Bool, base: NSFont) -> NSAttributedString {
         let result = NSMutableAttributedString()
-        for run in InlineMarkdown.runs(from: item.text) {
+        for run in InlineMarkdown.runs(from: text) {
             var attributes: [NSAttributedString.Key: Any] = [
-                .foregroundColor: item.done ? NSColor.secondaryLabelColor : NSColor.labelColor,
+                .foregroundColor: done ? NSColor.secondaryLabelColor : NSColor.labelColor,
             ]
-            if item.done || run.strikethrough {
+            if done || run.strikethrough {
                 attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
             }
 
