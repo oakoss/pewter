@@ -49,6 +49,9 @@ public final class FileStorage: @unchecked Sendable {
     /// save simply re-reports it. A bare `.saveFailed` only clears when a
     /// save succeeds; a working external read says nothing about whether
     /// writes work again.
+    ///
+    /// Covers reading and writing the file, not watching it: a failure to
+    /// arm the watcher leaves this untouched and is log-only (see `rewatch`).
     public var health: Health {
         queue.sync { currentHealth }
     }
@@ -169,6 +172,10 @@ public final class FileStorage: @unchecked Sendable {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         logger.warning("cannot watch notes file (errno \(openErrno)); watching parent directory")
         if !armWatch(path: directory.path) {
+            // Deliberately log-only rather than a `Health` case: a successful
+            // save or any load re-arms the watch, so this rarely outlives its
+            // cause, and a banner would name something the user can't act on.
+            // Copy Diagnostics carries the trail.
             logger.error("cannot watch notes directory either (errno \(errno)); external edits will not be detected")
         }
     }
