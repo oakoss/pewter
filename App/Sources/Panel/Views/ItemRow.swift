@@ -1,33 +1,45 @@
 import PewterCore
 import SwiftUI
 
+/// Actions that act on this row alone, regardless of the selection.
+struct ItemRowActions {
+    let toggle: () -> Void
+    let toggleExpand: () -> Void
+    let select: () -> Void
+    let beginEdit: () -> Void
+    let commitEdit: (String) -> Void
+    let cancelEdit: () -> Void
+    let copy: () -> Void
+    /// Row-scoped, unlike the menu's delete: the VoiceOver row action
+    /// presents itself as acting on the element under the cursor and must
+    /// not silently widen to the selection.
+    let delete: () -> Void
+}
+
+/// Selection-scoped actions plus the state that presents them: they act on
+/// the whole selection when this row is part of it, on the row alone
+/// otherwise. Surfaced via the context menu.
+struct ItemRowMenu {
+    /// Whether the done action marks its targets done (vs not done) —
+    /// computed over the whole selection when this row is in it.
+    let marksDone: Bool
+    let canMerge: Bool
+    let copy: () -> Void
+    let copyAsList: () -> Void
+    let toggleDone: () -> Void
+    let merge: () -> Void
+    let delete: () -> Void
+}
+
 struct ItemRow: View {
     let item: Item
     let isSelected: Bool
     let isHighlighted: Bool
     let isEditing: Bool
     let isExpanded: Bool
-    /// Whether the context menu's done action marks its targets done (vs not
-    /// done) — computed over the whole selection when this row is in it.
-    let menuMarksDone: Bool
     var editorFocus: FocusState<PanelRootView.Field?>.Binding
-    let onToggle: () -> Void
-    let onToggleExpand: () -> Void
-    let onSelect: () -> Void
-    let onBeginEdit: () -> Void
-    let onCommitEdit: (String) -> Void
-    let onCancelEdit: () -> Void
-    let onCopy: () -> Void
-    let onMenuCopy: () -> Void
-    let onMenuCopyList: () -> Void
-    let onMenuToggle: () -> Void
-    let canMerge: Bool
-    let onMenuMerge: () -> Void
-    /// Row-scoped, unlike `onMenuDelete`: the VoiceOver row action presents
-    /// itself as acting on the element under the cursor and must not
-    /// silently widen to the selection.
-    let onDelete: () -> Void
-    let onMenuDelete: () -> Void
+    let actions: ItemRowActions
+    let menu: ItemRowMenu
 
     @State private var editText = ""
     @State private var isHovering = false
@@ -73,7 +85,7 @@ struct ItemRow: View {
         .accessibilityAddTraits(rowTraits)
         .accessibilityAction {
             if !isEditing {
-                onSelect()
+                actions.select()
             }
         }
         // Done state as a value, not strikethrough alone — and every mouse
@@ -81,32 +93,34 @@ struct ItemRow: View {
         // delete) as a named action, since the combined row swallows the
         // gestures VoiceOver can't reach.
         .accessibilityValue(item.done ? "Done" : "Not done")
-        .accessibilityAction(named: "Edit") { onBeginEdit() }
-        .accessibilityAction(named: item.done ? "Mark as Not Done" : "Mark as Done") { onToggle() }
-        .accessibilityAction(named: "Copy") { onCopy() }
+        .accessibilityAction(named: "Edit") { actions.beginEdit() }
+        .accessibilityAction(named: item.done ? "Mark as Not Done" : "Mark as Done") { actions.toggle() }
+        .accessibilityAction(named: "Copy") { actions.copy() }
         .accessibilityActions {
             // Only long notes can visibly expand; a short note would toggle
             // hidden state to no effect.
             if isTruncated {
-                Button(isExpanded ? "Collapse" : "Expand") { onToggleExpand() }
+                Button(isExpanded ? "Collapse" : "Expand") { actions.toggleExpand() }
             }
         }
-        .accessibilityAction(named: "Delete") { onDelete() }
-        .onTapGesture(count: 2) { onBeginEdit() }
-        .onTapGesture { onSelect() }
+        .accessibilityAction(named: "Delete") { actions.delete() }
+        .onTapGesture(count: 2) { actions.beginEdit() }
+        .onTapGesture { actions.select() }
         .contextMenu {
-            Button("Copy") { onMenuCopy() }
-            Button("Copy as List") { onMenuCopyList() }
+            Button("Copy") { menu.copy() }
+            Button("Copy as List") { menu.copyAsList() }
             Divider()
-            Button(menuMarksDone ? "Mark as Done" : "Mark as Not Done") { onMenuToggle() }
-            Button("Edit") { onBeginEdit() }
+            Button(menu.marksDone ? "Mark as Done" : "Mark as Not Done") { menu.toggleDone() }
+            // Row-scoped even from the menu: inline editing targets a
+            // single row.
+            Button("Edit") { actions.beginEdit() }
             // Always visible, disabled unless this row is part of a
             // multi-selection: a stable menu teaches the feature; hiding it
             // hides that it exists.
-            Button("Merge Notes") { onMenuMerge() }
-                .disabled(!canMerge)
+            Button("Merge Notes") { menu.merge() }
+                .disabled(!menu.canMerge)
             Divider()
-            Button("Delete", role: .destructive) { onMenuDelete() }
+            Button("Delete", role: .destructive) { menu.delete() }
         }
     }
 
@@ -138,10 +152,10 @@ struct ItemRow: View {
 
     private var copyButton: some View {
         Button {
-            onCopy()
+            actions.copy()
             // Option-click: the "I'm sending this off, we're finished" move.
             if NSEvent.modifierFlags.contains(.option), !item.done {
-                onToggle()
+                actions.toggle()
             }
             showsCopied = true
             // Cancel the previous reset or a second quick copy loses its
@@ -180,7 +194,7 @@ struct ItemRow: View {
     }
 
     private var checkbox: some View {
-        Button(action: onToggle) {
+        Button(action: actions.toggle) {
             Image(systemName: item.done ? "checkmark.circle.fill" : "circle")
                 .font(.system(size: 15))
                 .foregroundStyle(item.done ? Color.accentColor : Color.secondary)
@@ -202,9 +216,9 @@ struct ItemRow: View {
                 .textFieldStyle(.plain)
                 .focused(editorFocus, equals: .editor)
                 .onAppear { editText = item.text }
-                .onSubmit { onCommitEdit(editText) }
+                .onSubmit { actions.commitEdit(editText) }
                 .onKeyPress(.escape) {
-                    onCancelEdit()
+                    actions.cancelEdit()
                     return .handled
                 }
         } else {
@@ -260,7 +274,7 @@ struct ItemRow: View {
     }
 
     private var disclosureButton: some View {
-        Button(action: onToggleExpand) {
+        Button(action: actions.toggleExpand) {
             Label(
                 isExpanded ? "Show less" : "Show more",
                 systemImage: isExpanded ? "chevron.up" : "chevron.down"

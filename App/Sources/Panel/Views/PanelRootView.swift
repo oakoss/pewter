@@ -304,28 +304,33 @@ struct PanelRootView: View {
                                 isHighlighted: item.id == uiState.highlightedItemID,
                                 isEditing: item.id == editingID,
                                 isExpanded: expansion.isExpanded(item.id),
-                                menuMarksDone: isRowSelected ? selectionMarksDone : !item.done,
                                 editorFocus: $focus,
-                                onToggle: { store.toggleDone(ids: [item.id]) },
-                                // Row-level like the checkbox: the chevron
-                                // toggles its own row even inside a
-                                // multi-selection; Cmd+E is the selection path.
-                                onToggleExpand: { toggleExpansion([item.id]) },
-                                onSelect: { select(item) },
-                                onBeginEdit: { beginEdit(item) },
-                                onCommitEdit: { text in commitEdit(id: item.id, text: text) },
-                                onCancelEdit: {
-                                    editingID = nil
-                                    focus = .list
-                                },
-                                onCopy: { copy([item]) },
-                                onMenuCopy: { copy(targets(for: item)) },
-                                onMenuCopyList: { copyAsList(targets(for: item)) },
-                                onMenuToggle: { toggleDone(targets(for: item)) },
-                                canMerge: selection.isMultiple && isRowSelected,
-                                onMenuMerge: { _ = mergeSelected() },
-                                onDelete: { delete(ids: [item.id]) },
-                                onMenuDelete: { delete(ids: Set(targets(for: item).map(\.id))) }
+                                actions: ItemRowActions(
+                                    toggle: { store.toggleDone(ids: [item.id]) },
+                                    // Row-level like the checkbox: the chevron
+                                    // toggles its own row even inside a
+                                    // multi-selection; Cmd+E is the selection
+                                    // path.
+                                    toggleExpand: { toggleExpansion([item.id]) },
+                                    select: { select(item) },
+                                    beginEdit: { beginEdit(item) },
+                                    commitEdit: { text in commitEdit(id: item.id, text: text) },
+                                    cancelEdit: {
+                                        editingID = nil
+                                        focus = .list
+                                    },
+                                    copy: { copy([item]) },
+                                    delete: { delete(ids: [item.id]) }
+                                ),
+                                menu: ItemRowMenu(
+                                    marksDone: isRowSelected ? selectionMarksDone : !item.done,
+                                    canMerge: selection.isMultiple && isRowSelected,
+                                    copy: { copy(targets(for: item)) },
+                                    copyAsList: { copyAsList(targets(for: item)) },
+                                    toggleDone: { toggleDone(targets(for: item)) },
+                                    merge: { _ = mergeSelected() },
+                                    delete: { delete(ids: Set(targets(for: item).map(\.id))) }
+                                )
                             )
                             .id(item.id)
                         }
