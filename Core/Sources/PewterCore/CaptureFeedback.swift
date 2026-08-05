@@ -7,12 +7,17 @@ public enum CaptureFeedback: Equatable, Sendable {
     case captured
     case nothingSelected
     case captureFailed
+    /// The notes file couldn't be read, so there is nowhere to put the
+    /// capture. Distinct from `captureFailed`: the text was read fine, and
+    /// the user's remedy is the file, not the selection.
+    case notesUnavailable
 
     public var symbolName: String {
         switch self {
         case .captured: "checkmark.circle"
         case .nothingSelected: "xmark.circle"
         case .captureFailed: "exclamationmark.circle"
+        case .notesUnavailable: "exclamationmark.triangle"
         }
     }
 
@@ -21,6 +26,7 @@ public enum CaptureFeedback: Equatable, Sendable {
         case .captured: "Captured"
         case .nothingSelected: "No text selected"
         case .captureFailed: "Couldn't capture — try copying manually"
+        case .notesUnavailable: "Can't read your notes file — nothing was saved"
         }
     }
 
@@ -29,7 +35,7 @@ public enum CaptureFeedback: Equatable, Sendable {
     public var duration: TimeInterval {
         switch self {
         case .captured: 1.2
-        case .nothingSelected, .captureFailed: 2
+        case .nothingSelected, .captureFailed, .notesUnavailable: 2
         }
     }
 
@@ -45,6 +51,7 @@ public enum CaptureFeedback: Equatable, Sendable {
         case .captured: "Pop"
         case .nothingSelected: "Tink"
         case .captureFailed: "Basso"
+        case .notesUnavailable: "Sosumi"
         }
     }
 }

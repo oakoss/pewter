@@ -49,7 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let panelController = PanelController(
             rootView: PanelRootView(commands: commands)
                 .environment(store)
-                .environment(uiState)
+                .environment(uiState),
+            onWillShow: { [weak store] in store?.retryUnavailableStorage() }
         )
         self.panelController = panelController
 
@@ -246,6 +247,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showCaptureFeedback(.nothingSelected, anchor: anchor)
         case .captureFailed:
             showCaptureFeedback(.captureFailed, anchor: nil)
+        case .notesUnavailable:
+            showCaptureFeedback(.notesUnavailable, anchor: nil)
         case .notPermitted:
             onboarding?.showIfNeeded()
         }

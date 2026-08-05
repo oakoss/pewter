@@ -653,6 +653,270 @@ struct ListStoreTests {
         #expect(reloaded.items.map(\.done) == [true, true])
     }
 
+    /// An unreadable file yields an empty document that is not the user's
+    /// notes. Marking it lets surfaces refuse input they would have to throw
+    /// away, instead of presenting a blank list as if it were real.
+    @Test func loadingAnUnreadableFileMarksTheDocumentAsAPlaceholder() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data([0xFF, 0xFE, 0x00]).write(to: url)
+
+        let store = ListStore.loadFrom(storage: FileStorage.unwatched(fileURL: url))
+        #expect(store.items.isEmpty)
+        #expect(store.documentIsPlaceholder)
+
+        // Adopting real content makes the document stand for itself again.
+        store.applyExternalChange(MarkdownDocument.parse("- [ ] real note\n"), generation: .initial)
+        #expect(!store.documentIsPlaceholder)
+        #expect(store.items.map(\.text) == ["real note"])
+    }
+
+    /// Every input is refused while the document is a placeholder, and a save
+    /// is the only other thing that re-reads the file — so without this the
+    /// app would insist it can't read repaired notes until the next launch.
+    @Test func reloadingRecoversAPlaceholderOnceTheFileIsReadable() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data([0xFF, 0xFE, 0x00]).write(to: url)
+
+        let store = ListStore.loadFrom(storage: FileStorage.unwatched(fileURL: url))
+        #expect(store.documentIsPlaceholder)
+
+        // Still unreadable: reloading must not pretend it recovered.
+        store.reloadIfPlaceholder()
+        #expect(store.documentIsPlaceholder)
+        #expect(store.items.isEmpty)
+
+        try Data("- [ ] repaired by hand\n".utf8).write(to: url, options: .atomic)
+        store.reloadIfPlaceholder()
+        #expect(!store.documentIsPlaceholder)
+        #expect(store.items.map(\.text) == ["repaired by hand"])
+
+        // And saving works again, on the generation the reload handed back.
+        store.add(text: "typed after recovery")
+        store.flush()
+        #expect(FileStorage(fileURL: url).load().document.items.map(\.text)
+            == ["repaired by hand", "typed after recovery"])
+    }
+
+    /// Reloading must clear the banner too. The banner is driven by health,
+    /// the list by the placeholder flag, and the design assumes they converge
+    /// on recovery — recovered notes under a "can't be read" banner is the
+    /// failure this pins.
+    @Test func reloadingClearsTheSuspensionBannerAsWellAsThePlaceholder() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data([0xFF, 0xFE, 0x00]).write(to: url)
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        #expect(storage.health == .unreadable)
+
+        try Data("- [ ] repaired\n".utf8).write(to: url, options: .atomic)
+        store.reloadIfPlaceholder()
+        #expect(!store.documentIsPlaceholder)
+        #expect(storage.health == .ok)
+    }
+
+    /// The worst clobber available: a placeholder holds nothing, so writing it
+    /// over a file repaired behind the app's back trades the user's real notes
+    /// for an empty document. Quit is when it would happen, since the flush
+    /// runs with no chance to reload first.
+    @Test func flushingAPlaceholderNeverClobbersAFileRepairedBehindTheApp() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data([0xFF, 0xFE, 0x00]).write(to: url)
+
+        let store = ListStore.loadFrom(storage: FileStorage.unwatched(fileURL: url))
+        #expect(store.documentIsPlaceholder)
+
+        // Unwatched on purpose: the app never learns of the repair, so the
+        // flush is the first thing to look at the file again.
+        let repaired = Data("- [ ] the user's real notes\n".utf8)
+        try repaired.write(to: url, options: .atomic)
+
+        store.flush()
+
+        #expect(try Data(contentsOf: url) == repaired)
+    }
+
+    /// The retry has to cover the runtime break, not just the placeholder: a
+    /// capture-only user never opens the panel, so if this path can't clear a
+    /// repaired file the HUD keeps refusing notes until the app is relaunched.
+    @Test func retryingRecoversAfterTheFileBreaksAndIsRepairedAtRuntime() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        store.add(text: "real note")
+        store.flush()
+        // The app's own bytes. A permission repair restores exactly these —
+        // the content never changed, only the ability to read it — so the
+        // recovery must take the `.ours` path and keep what's in memory.
+        let ourBytes = try Data(contentsOf: url)
+
+        // Unwatched throughout: the app only ever learns about the file by
+        // looking at it, which is what the retry is for.
+        try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
+        store.add(text: "typed after the break")
+        store.flush()
+        #expect(storage.health == .unreadable)
+        #expect(!store.documentIsPlaceholder, "a runtime break must not raise the placeholder flag")
+        #expect(store.inputWouldBeDiscarded)
+
+        try ourBytes.write(to: url, options: .atomic)
+        store.retryUnavailableStorage()
+
+        #expect(!store.inputWouldBeDiscarded)
+        #expect(storage.health == .ok)
+        // The note typed while saving was suspended has to survive the
+        // recovery — re-reading the file instead would silently drop it.
+        #expect(store.items.map(\.text) == ["real note", "typed after the break"])
+
+        // The capture the retry cleared the way for, and everything held in
+        // memory behind it, reach disk together.
+        store.add(text: "captured after recovery")
+        store.flush()
+        #expect(FileStorage(fileURL: url).load().document.items.map(\.text)
+            == ["real note", "typed after the break", "captured after recovery"])
+    }
+
+    /// The break is invisible until something looks: no save has failed yet,
+    /// so health still reads `.ok` about a file that is already unreadable.
+    /// Without the retry reconciling first, the very next capture reports
+    /// "Captured" for a note that dies at quit.
+    @Test func theFirstInputAfterAnUnnoticedBreakIsRefused() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        store.add(text: "real note")
+        store.flush()
+        #expect(storage.health == .ok)
+
+        // Broken behind the app's back, with nothing written since — exactly
+        // what a `chmod` leaves behind, which fires no watcher event.
+        try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
+        #expect(storage.health == .ok, "nothing has looked at the file yet")
+        #expect(!store.inputWouldBeDiscarded, "and so nothing knows to refuse")
+
+        store.retryUnavailableStorage()
+
+        #expect(storage.health == .unreadable)
+        #expect(store.inputWouldBeDiscarded)
+    }
+
+    /// Recovering by adopting leaves the store a generation behind until the
+    /// delivery lands, and that delivery replaces the document. Health is
+    /// `.ok` throughout, so nothing else here would stop a capture from
+    /// reporting success for a note the adoption is about to discard.
+    @Test func inputIsRefusedWhileAnAdoptionIsStillInFlight() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        store.add(text: "real note")
+        store.flush()
+
+        try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
+        store.add(text: "typed after the break")
+        store.flush()
+        #expect(storage.health == .unreadable)
+
+        // Repaired by rewriting with different content: foreign, so the retry
+        // adopts rather than overwriting.
+        try Data("- [ ] rewritten by hand\n".utf8).write(to: url, options: .atomic)
+        store.retryUnavailableStorage()
+
+        #expect(storage.health == .ok)
+        #expect(store.inputWouldBeDiscarded)
+    }
+
+    /// The guard is what keeps the reload off the hot path: it runs on every
+    /// panel summon and every capture, and adopting unconditionally would
+    /// re-read the file and wipe undo each time.
+    @Test func reloadingIsANoOpWhenTheDocumentIsReal() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let store = ListStore.loadFrom(storage: FileStorage.unwatched(fileURL: url))
+        let item = try #require(store.add(text: "deletable"))
+        store.delete(ids: [item.id])
+
+        store.reloadIfPlaceholder()
+
+        #expect(!store.undoDelete().isEmpty)
+        #expect(store.items.map(\.text) == ["deletable"])
+    }
+
+    /// A readable but genuinely empty file is not a placeholder — a fresh
+    /// install must keep accepting notes.
+    @Test func loadingAnEmptyFileIsNotAPlaceholder() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        // Zero bytes, which is what a fresh install leaves after its first
+        // save — readable, so not a placeholder.
+        try Data().write(to: url)
+
+        let store = ListStore.loadFrom(storage: FileStorage.unwatched(fileURL: url))
+        #expect(store.items.isEmpty)
+        #expect(!store.documentIsPlaceholder)
+    }
+
+    @Test func loadingWhenNoFileExistsIsNotAPlaceholder() {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let store = ListStore.loadFrom(storage: FileStorage.unwatched(fileURL: url))
+        #expect(store.items.isEmpty)
+        #expect(!store.documentIsPlaceholder)
+    }
+
     /// Completes the loop the storage tests stop halfway through: an external
     /// edit lands, the store applies it, and the user keeps typing. The store
     /// has to carry the generation it was handed or every save from here on is

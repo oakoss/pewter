@@ -53,9 +53,9 @@ struct CaptureCoordinatorTests {
         capture: FakeCapture,
         trusted: Bool = true,
         prefersRichSource: Bool = false,
+        store: ListStore = ListStore(),
         now: @escaping () -> Date = { Date() }
     ) -> (CaptureCoordinator, ListStore, Outcomes) {
-        let store = ListStore()
         let coordinator = CaptureCoordinator(
             store: store,
             selectionReader: reader,
@@ -67,6 +67,89 @@ struct CaptureCoordinatorTests {
         let outcomes = Outcomes()
         coordinator.onOutcome = { outcomes.record($0) }
         return (coordinator, store, outcomes)
+    }
+
+    /// A capture-only user never opens the panel, so without a retry here a
+    /// repaired file would go unnoticed and every capture would keep failing.
+    @Test func captureRetriesTheFileAndSucceedsOnceItIsReadable() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-capture-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data([0xFF, 0xFE, 0x00]).write(to: url)
+        let store = ListStore.loadFrom(storage: FileStorage.unwatched(fileURL: url))
+        #expect(store.documentIsPlaceholder)
+
+        try Data("- [ ] repaired\n".utf8).write(to: url, options: .atomic)
+
+        let reader = FakeReader(result: "captured after repair")
+        let capture = FakeCapture(result: .copied("should not be used"))
+        let (coordinator, _, outcomes) = makeCoordinator(reader: reader, capture: capture, store: store)
+        coordinator.captureSelection()
+
+        #expect(store.items.map(\.text) == ["repaired", "captured after repair"])
+        #expect(outcomes.all.count == 1)
+        if case .captured = outcomes.all[0] {} else {
+            Issue.record("expected .captured, got \(outcomes.all)")
+        }
+    }
+
+    /// A file that turns unreadable while the app runs leaves the real notes
+    /// in memory, so nothing looks wrong — but the save is refused and the
+    /// note dies at quit. Reporting "Captured" there is the lie the guard
+    /// exists to prevent, and the panel is closed so the HUD is the only
+    /// signal the user gets.
+    @Test func captureIsRefusedWhenSavingIsSuspendedAtRuntime() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-capture-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        store.add(text: "a real note")
+        store.flush()
+        #expect(!store.documentIsPlaceholder)
+
+        // Unreadable now, with the user's real document still in memory.
+        try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
+        store.flush()
+        #expect(storage.health == .unreadable)
+        #expect(!store.documentIsPlaceholder)
+
+        let reader = FakeReader(result: "captured during a suspension")
+        let capture = FakeCapture(result: .copied("should not be used"))
+        let (coordinator, _, outcomes) = makeCoordinator(reader: reader, capture: capture, store: store)
+        coordinator.captureSelection()
+
+        #expect(outcomes.all == [CaptureCoordinator.Outcome.notesUnavailable])
+        #expect(store.items.map(\.text) == ["a real note"])
+    }
+
+    /// The capture text was read fine — there is simply nowhere to put it.
+    /// Storing it anyway would add to a document that gets replaced the
+    /// moment the real notes are read, so it fails where the user can see it.
+    @Test func captureIsRefusedWhileTheDocumentIsAPlaceholder() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-capture-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data([0xFF, 0xFE, 0x00]).write(to: url)
+        let store = ListStore.loadFrom(storage: FileStorage.unwatched(fileURL: url))
+        #expect(store.documentIsPlaceholder)
+
+        let reader = FakeReader(result: "captured while unreadable")
+        let capture = FakeCapture(result: .copied("should not be used"))
+        let (coordinator, _, outcomes) = makeCoordinator(reader: reader, capture: capture, store: store)
+        coordinator.captureSelection()
+
+        #expect(outcomes.all == [CaptureCoordinator.Outcome.notesUnavailable])
+        #expect(store.items.isEmpty)
     }
 
     @Test func untrustedReportsNotPermittedWithoutTouchingDeps() {

@@ -436,28 +436,66 @@ struct PanelRootView: View {
 
     private var emptyState: some View {
         VStack(spacing: 6) {
-            Image(systemName: uiState.query.isEmpty ? "sparkles" : "magnifyingglass")
+            Image(systemName: emptyStateContent.symbol)
                 .font(.title2)
                 .foregroundStyle(.tertiary)
-            Text(uiState.query.isEmpty ? uiState.captureHint : "No matches")
+                // The symbol only restates the message. Left visible to
+                // VoiceOver it becomes a stop that announces "warning" and
+                // nothing else, which is where the state's meaning is lost.
+                .accessibilityHidden(true)
+            Text(emptyStateContent.message)
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
         .padding(.vertical, 40)
+        // Redundant while the symbol is the only other child, and kept so a
+        // second line added later is announced with the message, not after it.
+        .accessibilityElement(children: .combine)
+    }
+
+    /// A placeholder document must not read as an empty one — "capture
+    /// something" invites work that would be discarded. Terse on purpose:
+    /// the banner above owns the explanation and the remedy, and two
+    /// paragraphs saying the same thing read as two problems.
+    private var emptyStateContent: (symbol: String, message: String) {
+        if store.documentIsPlaceholder {
+            ("exclamationmark.triangle", "Notes unavailable")
+        } else if uiState.query.isEmpty {
+            ("sparkles", uiState.captureHint)
+        } else {
+            ("magnifyingglass", "No matches")
+        }
     }
 
     private var quickAddField: some View {
-        TextField("Add a note or a prompt…", text: $draft, axis: .vertical)
+        TextField(quickAddPrompt.title, text: $draft, axis: .vertical)
             .textFieldStyle(.plain)
             .accessibilityLabel("New note")
             // The label displaces the placeholder in the announcement; the
             // hint restores what the field accepts.
-            .accessibilityHint("Add a note or a prompt")
+            .accessibilityHint(quickAddPrompt.hint)
             .lineLimit(1 ... 5)
             .padding(10)
             .focused($focus, equals: .quickAdd)
             .onSubmit {
+                // Submitting resigns first responder; every exit restores it
+                // so Return can be pressed again without clicking back in.
+                defer { focus = .quickAdd }
+                store.retryUnavailableStorage()
+                // Refused, not accepted-then-discarded: the list on screen
+                // isn't the user's notes, so committing would throw the text
+                // away when the real ones arrive. The field stays enabled
+                // rather than disabled — a disabled field can't be focused, so
+                // VoiceOver could never reach the reason, and the draft
+                // survives to be committed once the file is readable again.
+                //
+                // Known-narrow: this misses the states where the document is
+                // real but the note still won't land — see pw-d0a.
+                guard !store.documentIsPlaceholder else {
+                    uiState.showToast("Can't save yet — your notes file can't be read")
+                    return
+                }
                 if let added = store.add(text: draft) {
                     draft = ""
                     // Same rule as capture: a filter that hides the new
@@ -466,8 +504,17 @@ struct PanelRootView: View {
                     selection.select(added.id)
                     uiState.reveal(added.id)
                 }
-                focus = .quickAdd
             }
+    }
+
+    /// Placeholder text and hint move together: a field that still invites a
+    /// note it would refuse is the mismatch this exists to prevent.
+    private var quickAddPrompt: (title: String, hint: String) {
+        if store.documentIsPlaceholder {
+            ("Notes unavailable", "Unavailable until your notes file can be read")
+        } else {
+            ("Add a note or a prompt…", "Add a note or a prompt")
+        }
     }
 
     // MARK: - Actions
