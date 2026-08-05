@@ -518,8 +518,8 @@ an AX answer delivers plain text that passes through untouched.
       value
 - [ ] GATING: capture from another app with VO running → the outcome is
       audible without looking, as a distinct sound per result (captured /
-      nothing selected / capture failed), and the three are tellable apart
-      by ear. Speech is deliberately not the channel: macOS speaks
+      nothing selected / capture failed / notes unavailable), and the four
+      are tellable apart by ear. Speech is deliberately not the channel: macOS speaks
       announcements only for the frontmost app and the capture source is
       frontmost by design — if nothing is audible, the feedback design
       needs rework, not a checked box
@@ -529,6 +529,19 @@ an AX answer delivers plain text that passes through untouched.
 - [ ] With VoiceOver's speech routed to a different output device than the
       system default, capture → the sound follows the system default, so it
       may be inaudible; accepted limitation, no in-process way to detect it
+- [ ] With VO running and the notes file unreadable, capture → the fourth
+      sound plays and is distinct from the capture-failed one; the remedies
+      differ (fix the file vs fix the selection), so hearing them as the
+      same would send the user to debug the wrong thing
+- [ ] With VO running and the notes file unreadable, VO-navigate the empty
+      list → it announces "Notes unavailable". The symbol restates the
+      message, so leaving it visible to VoiceOver makes it the stop and the
+      words are never reached — the state then reads as an ordinary empty
+      list, which is the one thing this empty state exists to prevent
+- [ ] With VO running and the notes file unreadable, VO-focus the panel's
+      composer → it is still reachable (not skipped as dimmed) and its hint
+      reads "Unavailable until your notes file can be read"; type and press
+      Return → the refusal is announced and focus stays on the field
 - [ ] Capture with VO turned off → no sound (the HUD is the feedback;
       capture stays silent for everyone else)
 - [ ] Turn VO on without relaunching Pewter, then capture → the sound
@@ -578,10 +591,45 @@ an AX answer delivers plain text that passes through untouched.
 - [ ] `chmod 000` the notes file, relaunch → red "saving is off" banner; the
       file's bytes are untouched by any in-app edit; `chmod 644` + relaunch
       recovers
+- [ ] `chmod 000` the notes file, relaunch, open the panel → the list reads
+      "Notes unavailable", not the capture hint: an empty list here would be
+      indistinguishable from a fresh install
+- [ ] With that same unreadable file, type into the composer and press Return
+      → a toast says the notes file can't be read, the text stays in the
+      field, and nothing is added
+- [ ] With that same unreadable file, select text in another app and
+      double-tap Shift → the HUD reads "Can't read your notes file — nothing
+      was saved" with the failure sound, rather than appearing to capture
+- [ ] Still with the app running, `chmod 644`, then summon the panel, press
+      Return in the composer, or capture again → the notes reappear, the red
+      banner clears, and saving works, with no relaunch. A mode change fires
+      no watcher event and every input is refused, so one of those retries is
+      what re-reads the file
+- [ ] Same, but recover via capture alone: with the panel never opened,
+      `chmod 644` and double-tap Shift → the capture lands. A capture-only
+      user has no other way back
+- [ ] Delete the notes file entirely and relaunch → the empty state shows the
+      capture hint, NOT "Notes unavailable" — a fresh install must not look
+      like a broken one
+- [ ] Same again but leave the panel open the whole time: `chmod 644`, then
+      press Return in the composer → recovers without hiding the panel first
+- [ ] With the file unreadable, type in the composer and press Return → the
+      text stays in the field *and* the composer keeps focus, so Return can
+      be pressed again once the file is repaired
+- [ ] Re-save an unreadable (non-UTF8) notes file as UTF-8 in an editor while
+      the app runs → the panel recovers on its own via the watcher, with no
+      summon needed; this is the repair the watcher can see
 - [ ] `chmod 000` the notes file with the app still running (a mode change
       fires no watcher event), then add a note → the banner appears without a
       relaunch and the file's bytes are untouched; `chmod 644` and add
-      another note → saving resumes, still without a relaunch
+      another note → saving resumes, still without a relaunch, and the notes
+      typed while it was locked are written too
+- [ ] The same runtime break, recovered by capture alone: `chmod 000` with the
+      app running, capture once (refused), `chmod 644`, capture again → it
+      lands. Distinct from the launch-time capture-only item above, and the
+      case that actually regressed: a runtime break leaves the document real,
+      so a retry keyed on the placeholder flag does nothing and the user is
+      refused until they relaunch
 - [ ] Quit immediately after adding an item → item survived (flush on quit)
 - [ ] An item with a blank line in the middle (captured multi-paragraph
       prompt) survives an external editor that strips trailing whitespace

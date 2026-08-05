@@ -8,8 +8,12 @@ final class PanelController {
     private static let logger = Logger.panel
 
     private let panel: FloatingPanel
+    /// Runs before the panel appears. Non-optional so a wiring gap is a
+    /// compile error rather than a panel that silently stops recovering.
+    private let onWillShow: () -> Void
 
-    init(rootView: some View) {
+    init(rootView: some View, onWillShow: @escaping () -> Void) {
+        self.onWillShow = onWillShow
         panel = FloatingPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 480))
         // The hidden titlebar reserves a top safe-area inset (dead space
         // above the search field); ignore it inside SwiftUI. Clearing
@@ -37,6 +41,10 @@ final class PanelController {
     }
 
     func show(relativeTo statusButton: NSStatusBarButton? = nil, onActiveScreen: Bool = false) {
+        // Summoning the panel is the user checking whether things work yet,
+        // which makes it the natural moment to re-read a file that couldn't
+        // be read at launch.
+        onWillShow()
         // A corrupted autosaved frame (e.g. from a layout loop) must never
         // brick the panel; clamp anything implausible back to the default.
         if let screen = panel.screen ?? NSScreen.main,

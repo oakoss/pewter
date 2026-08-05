@@ -18,6 +18,20 @@ public final class ListStore {
     /// adopted but this store has not applied yet.
     private var generation = FileStorage.DocumentGeneration.initial
 
+    /// True when `document` stands in for notes that could not be read — an
+    /// unknown list, not an empty one. Set only at load and cleared once real
+    /// content arrives; it never goes back up within a process.
+    ///
+    /// Distinct from saving being suspended: a file that turns unreadable
+    /// while the app runs leaves the real document in memory, so the panel
+    /// keeps showing the user's notes and editing them still makes sense.
+    /// That says nothing about durability — see `inputWouldBeDiscarded`.
+    public private(set) var documentIsPlaceholder = false
+    /// Keeps the failed-retry line to once per stretch of unreadability. The
+    /// retry runs on every panel summon and every refused input, so a file
+    /// left unrepaired would otherwise bury the line explaining why.
+    private var loggedFailedReload = false
+
     /// One undoable mutation: the lines it removed, plus any line it
     /// inserted (merge), each with its recorded index. Undo removes the
     /// inserted lines first, then re-inserts the removals; redo replays
@@ -66,6 +80,7 @@ public final class ListStore {
         let loaded = storage.load()
         store.document = loaded.document
         store.generation = loaded.generation
+        store.documentIsPlaceholder = loaded.isPlaceholder
         return store
     }
 
@@ -78,7 +93,7 @@ public final class ListStore {
     /// choice available, since a store left on the baseline while the
     /// storage has moved on has every save refused for the life of the
     /// process.
-    public func applyExternalChange(
+    func applyExternalChange(
         _ newDocument: MarkdownDocument,
         generation: FileStorage.DocumentGeneration
     ) {
@@ -87,13 +102,101 @@ public final class ListStore {
         Logger.storage
             .info("external edit replaced the document: \(before) → \(after) notes; undo/redo history cleared")
         document = newDocument
+        documentIsPlaceholder = false
         deletedBatches.removeAll()
         redoBatches.removeAll()
         self.generation = generation
     }
 
+    /// True when a note accepted now would not reach disk: the document
+    /// isn't the user's notes, or saving is suspended and anything accepted
+    /// dies at quit.
+    ///
+    /// `.saveFailed` is excluded deliberately, not by omission: an unreadable
+    /// file will refuse every save until it is repaired, whereas a failed
+    /// write is often transient (a full disk that drains, a volume that
+    /// remounts) and the next debounce may well land. Refusing captures on it
+    /// would trade a rare lie for a common one.
+    ///
+    /// Broader than `documentIsPlaceholder`, and the right test for a surface
+    /// that reports success — capture fires with the panel closed, where an
+    /// affirmative "Captured" is the only signal the user gets. The composer
+    /// still uses the narrower flag, which is not yet right, and the gap is
+    /// wider than a timing window: it misses the first note after a runtime
+    /// break (health flips only once the debounced write fails) *and* the
+    /// whole in-flight-adoption state, which no banner can ever show because
+    /// health there is `.ok`. Switching it needs an observable health mirror —
+    /// pw-d0a.
+    public var inputWouldBeDiscarded: Bool {
+        guard let storage else { return documentIsPlaceholder }
+        // The generation check is what covers a retry that recovered by
+        // adopting: the file reads fine and health is `.ok`, but the adopted
+        // document has not been delivered here yet and will replace anything
+        // accepted in the meantime.
+        return documentIsPlaceholder
+            || storage.health == .unreadable
+            || !storage.accepts(generation)
+    }
+
+    /// Re-reads the file and takes it up if it has become readable.
+    ///
+    /// Covers what the watcher misses: it recovers repairs that change the
+    /// file's bytes, but not a permission-only fix, and it may never have
+    /// armed at all. Nothing else re-reads the file either, since every input
+    /// is refused while the document is a placeholder.
+    public func reloadIfPlaceholder() {
+        guard documentIsPlaceholder, let storage else { return }
+        let loaded = storage.load()
+        guard !loaded.isPlaceholder else {
+            // The user retried to find out whether their repair worked; a
+            // silent no-op looks identical to a stale banner.
+            if !loggedFailedReload {
+                loggedFailedReload = true
+                Self.logger.notice("retried the notes file; still unreadable")
+            }
+            return
+        }
+        loggedFailedReload = false
+        Self.logger.notice("notes file readable again on retry; adopting it")
+        // A repaired file is an external change like any other: same
+        // adoption, same history reset.
+        applyExternalChange(loaded.document, generation: loaded.generation)
+    }
+
+    /// Retries whichever repair the current state needs, for surfaces that
+    /// must decide right now whether input would be discarded.
+    ///
+    /// A placeholder re-reads the file. A document that was real when the file
+    /// broke must not: re-reading would trade every note added since the break
+    /// for what's on disk. That holds only for a repair restoring content the
+    /// storage has already seen — a permission fix. A repair that *rewrites*
+    /// the file is a foreign change and is adopted like any other, so notes
+    /// added during the suspension are lost either way; this only moves that
+    /// where the user can see it. Reconciling against the disk covers both
+    /// — it clears a suspension the app can no longer justify, and it *raises*
+    /// one the app hasn't noticed yet, which health alone can't do since a mode
+    /// change fires no watcher event. Unconditional for that second reason:
+    /// gating on `health == .unreadable` would let the first capture after a
+    /// break report success. Synchronous, so health is current on return.
+    public func retryUnavailableStorage() {
+        if documentIsPlaceholder {
+            reloadIfPlaceholder()
+        } else {
+            storage?.refreshFromDisk()
+        }
+    }
+
+    /// Refused on a placeholder document: the note would be dropped when the
+    /// real content arrives. Surfaces check first because only they can name
+    /// the reason; this is the backstop for one that forgets, and it has to be
+    /// loud — a bare nil reads as "nothing to add" downstream.
     @discardableResult
     public func add(text: String) -> Item? {
+        guard !documentIsPlaceholder else {
+            assertionFailure("add() on a placeholder document; the calling surface must refuse and explain")
+            Self.logger.error("add refused: the document is a placeholder")
+            return nil
+        }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let item = Item(text: trimmed)
@@ -270,8 +373,39 @@ public final class ListStore {
         text.range(of: trimmedQuery, options: [.caseInsensitive, .diacriticInsensitive]) != nil
     }
 
-    public func flush() {
+    /// True when the document in memory is not on disk and no later save will
+    /// put it there: storage is unhealthy, or an adopted document is still in
+    /// flight and will replace this one on delivery. Sample it after a save.
+    /// False without storage — a detached store has nothing to lose.
+    ///
+    /// `.saveFailed` counts here though `inputWouldBeDiscarded` excludes it:
+    /// that exclusion rests on a later debounce landing, and at quit there is
+    /// no later debounce.
+    var documentDidNotReachDisk: Bool {
+        guard let storage else { return false }
+        return storage.health != .ok || !storage.accepts(generation)
+    }
+
+    /// Saves immediately, reporting whether anything was left unsaved.
+    ///
+    /// Returning the answer is what keeps it honest: a caller cannot sample it
+    /// before the save, where a suspension this very call resolves reads as
+    /// loss and an adoption it triggers reads as success.
+    @discardableResult
+    public func flush() -> Bool {
         storage?.saveNow(document, generation: generation)
+        let unsaved = documentDidNotReachDisk
+        guard unsaved else { return false }
+        // The write path logs suspensions only on the transition, long past by
+        // now, so without this the notes added during one die here leaving no
+        // trace, at the one moment a diagnostics report most needs it. Bound
+        // outside the interpolation: the log closure would need an explicit
+        // `self` that swiftformat then strips back out.
+        let held = items.count
+        Self.logger.error(
+            "quitting without a durable save; the file does not have the current \(held, privacy: .public) notes"
+        )
+        return true
     }
 
     private func persist() {

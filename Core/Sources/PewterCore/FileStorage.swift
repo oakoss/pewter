@@ -20,16 +20,16 @@ public final class FileStorage: @unchecked Sendable {
     /// save that predates an adoption is refused rather than trusted.
     ///
     /// Only this file can mint one, so a caller cannot fabricate a newer
-    /// generation to get a stale save accepted. `.initial` is public and so
-    /// can be named by anyone, but it is safe for the same reason: these only
-    /// ever move forward, so the baseline matches exactly once — before the
-    /// first delivery, which is when claiming it is true. Rewinding the
-    /// counter anywhere would break that and let one value be minted twice.
+    /// generation to get a stale save accepted. `.initial` can be named
+    /// module-wide, which is safe for the same reason: these only ever move
+    /// forward, so the baseline matches exactly once — before the first
+    /// delivery, which is when claiming it is true. Rewinding the counter
+    /// anywhere would break that and let one value be minted twice.
     public struct DocumentGeneration: Equatable, Sendable {
         fileprivate let value: UInt64
 
         /// Before any external change: what a freshly loaded document is on.
-        public static let initial = DocumentGeneration(value: 0)
+        static let initial = DocumentGeneration(value: 0)
 
         fileprivate var next: DocumentGeneration {
             DocumentGeneration(value: value + 1)
@@ -118,6 +118,63 @@ public final class FileStorage: @unchecked Sendable {
         queue.sync { currentHealth }
     }
 
+    /// Brings health and, where needed, the adopted document back in line with
+    /// what is actually on disk. Returns whether writing is safe.
+    ///
+    /// Split out of `write` so a surface that must decide *before* accepting
+    /// input can ask the same question without writing. Health alone is not an
+    /// answer: a mode change fires no watcher event, so it can still read `.ok`
+    /// about a file that has already broken, and the first capture after that
+    /// would be reported as saved.
+    @discardableResult
+    private func reconcileWithDisk(noticedAt context: String) -> Bool {
+        dispatchPrecondition(condition: .onQueue(queue))
+        switch inspectOnDisk() {
+        case .absent, .ours:
+            resumeSavesIfSuspended()
+            return true
+        case let .unreadable(reason):
+            // Same protection as at load: never overwrite content the app
+            // can't read, so can't have seen. Re-arm on the way out — landing
+            // here at all is evidence the watcher missed the change that
+            // broke the file, and without a watcher nothing else re-reads it.
+            // Logged on the transition: unlike an adoption this neither bumps
+            // the generation nor changes the hash, so every later save
+            // re-enters and would repeat the line for as long as it lasts.
+            if currentHealth != .unreadable {
+                logger
+                    .error(
+                        "notes file is unreadable \(context, privacy: .public) (\(reason)); suspending saves to protect it"
+                    )
+            }
+            rewatch()
+            setHealth(.unreadable)
+            return false
+        case let .foreign(text, hash):
+            resumeSavesIfSuspended()
+            logger.warning("notes file changed on disk with no watcher event; adopting it rather than overwriting")
+            rewatch()
+            adoptExternalContent(MarkdownDocument.parse(text), hash: hash)
+            return false
+        }
+    }
+
+    /// Re-reads the file's state without writing, so a caller can find out
+    /// whether input accepted right now would survive.
+    func refreshFromDisk() {
+        queue.sync { _ = reconcileWithDisk(noticedAt: "on retry") }
+    }
+
+    /// True when a document built on `generation` can still be saved.
+    ///
+    /// A store behind this storage has an adopted document already in flight
+    /// to it, and applying that delivery replaces whatever the store is
+    /// holding. Health says nothing about this — the file can be perfectly
+    /// readable — so a surface that reports success needs to ask separately.
+    func accepts(_ generation: DocumentGeneration) -> Bool {
+        queue.sync { generation == currentGeneration }
+    }
+
     /// Sets the handler called with the freshly parsed document when the file
     /// changes on disk from outside the app, and the generation that document
     /// is on. Invoked on an arbitrary queue. Saving anything built on an
@@ -160,13 +217,20 @@ public final class FileStorage: @unchecked Sendable {
     /// reading the bytes and recording them and leave the newer hash and
     /// generation overwritten by this older snapshot.
     ///
+    /// `isPlaceholder` reports whether the returned document stands in for
+    /// notes that couldn't be read. It is decided inside the same hop that
+    /// reads the file: asking afterwards would race the watcher this call
+    /// arms, and a caller that saw a stale answer would treat an empty
+    /// placeholder as the user's real notes.
+    ///
     /// The recorded digest is replaced unconditionally, so loading over an
     /// absent or unreadable file clears it rather than leaving one that names
     /// bytes no longer there.
-    public func load() -> (document: MarkdownDocument, generation: DocumentGeneration) {
+    func load() -> (document: MarkdownDocument, generation: DocumentGeneration, isPlaceholder: Bool) {
         queue.sync {
             var document = MarkdownDocument()
             var loadedHash: SHA256Digest?
+            var isUnreadable = false
             if FileManager.default.fileExists(atPath: fileURL.path) {
                 if let data = try? Data(contentsOf: fileURL), let text = String(data: data, encoding: .utf8) {
                     loadedHash = SHA256.hash(data: data)
@@ -175,13 +239,36 @@ public final class FileStorage: @unchecked Sendable {
                     // The file exists but can't be read (permissions, non-UTF8).
                     // Proceeding with an empty document and live saves would
                     // overwrite the user's data — refuse to write instead.
-                    logger.error("notes file exists but is unreadable; suspending saves to protect it")
-                    setHealth(.unreadable)
+                    // Throttled like the save path's twin: a summon re-reads,
+                    // so an unrepaired file would otherwise log this on every
+                    // summon and bury the line that explains it.
+                    if currentHealth != .unreadable {
+                        logger.error("notes file exists but is unreadable; suspending saves to protect it")
+                    }
+                    isUnreadable = true
                 }
             }
+            // Symmetric with the write path: a read that works, or a file
+            // that is gone, ends a suspension. Without it a reload that
+            // succeeds would leave the banner up over readable notes.
+            if isUnreadable {
+                setHealth(.unreadable)
+            } else {
+                resumeSavesIfSuspended()
+            }
             lastKnownDiskHash = loadedHash
+            // The caller now holds what is on disk; anything queued was built
+            // before that and would write over it at a matching generation.
+            // Reachable only if a caller loads with edits outstanding, which
+            // no surface does today — so say it rather than leave the
+            // discarded edit to be inferred from a note that vanished.
+            if pendingSave != nil {
+                logger.notice("dropped a queued save on load; the caller now holds what is on disk")
+            }
+            pendingSave?.cancel()
+            pendingSave = nil
             rewatch()
-            return (document, currentGeneration)
+            return (document, currentGeneration, isUnreadable)
         }
     }
 
@@ -232,30 +319,7 @@ public final class FileStorage: @unchecked Sendable {
             return
         }
         loggedRefusedSave = false
-        switch inspectOnDisk() {
-        case .absent, .ours:
-            resumeSavesIfSuspended()
-        case let .unreadable(reason):
-            // Same protection as at load: never overwrite content the app
-            // can't read, so can't have seen. Re-arm on the way out — landing
-            // here at all is evidence the watcher missed the change that
-            // broke the file, and without a watcher nothing else re-reads it.
-            // Logged on the transition: unlike an adoption this neither bumps
-            // the generation nor changes the hash, so every later save
-            // re-enters and would repeat the line for as long as it lasts.
-            if currentHealth != .unreadable {
-                logger.error("notes file is unreadable at save time (\(reason)); suspending saves to protect it")
-            }
-            rewatch()
-            setHealth(.unreadable)
-            return
-        case let .foreign(text, hash):
-            resumeSavesIfSuspended()
-            logger.warning("notes file changed on disk with no watcher event; adopting it rather than overwriting")
-            rewatch()
-            adoptExternalContent(MarkdownDocument.parse(text), hash: hash)
-            return
-        }
+        guard reconcileWithDisk(noticedAt: "at save time") else { return }
         do {
             let directory = fileURL.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

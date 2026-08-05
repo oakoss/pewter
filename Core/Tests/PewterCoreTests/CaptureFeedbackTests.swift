@@ -18,6 +18,10 @@ struct CaptureFeedbackTests {
         #expect(CaptureFeedback.captureFailed.symbolName == "exclamationmark.circle")
         #expect(CaptureFeedback.captureFailed.message == "Couldn't capture — try copying manually")
         #expect(CaptureFeedback.captureFailed.duration == 2)
+
+        #expect(CaptureFeedback.notesUnavailable.symbolName == "exclamationmark.triangle")
+        #expect(CaptureFeedback.notesUnavailable.message == "Can't read your notes file — nothing was saved")
+        #expect(CaptureFeedback.notesUnavailable.duration == 2)
     }
 
     @Test func failureFeedbackOutlastsSuccess() {
@@ -35,6 +39,7 @@ struct CaptureFeedbackTests {
             CaptureFeedback.captured.soundName,
             CaptureFeedback.nothingSelected.soundName,
             CaptureFeedback.captureFailed.soundName,
+            CaptureFeedback.notesUnavailable.soundName,
         ]
         #expect(Set(names).count == names.count)
         #expect(names.allSatisfy { !$0.isEmpty })

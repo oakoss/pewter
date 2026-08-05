@@ -45,6 +45,8 @@ public final class CaptureCoordinator {
         case nothingSelected(anchor: CGRect?)
         case captureFailed
         case notPermitted
+        /// The capture succeeded but there is nowhere to store it.
+        case notesUnavailable
     }
 
     public var onOutcome: ((Outcome) -> Void)?
@@ -229,9 +231,24 @@ public final class CaptureCoordinator {
         if let existing = duplicate(of: text) {
             // Re-surface the existing note instead of adding a copy — the
             // double-fire reads as one successful capture, not a silent
-            // no-op.
+            // no-op. Ahead of the availability guard on purpose: nothing new
+            // is stored, so there is nothing to discard.
             Self.logger.info("duplicate capture via \(tier, privacy: .public) tier; re-surfacing the existing note")
             onOutcome?(.captured(existing, anchor: anchor))
+            return
+        }
+        // A refused capture is its own retry, in both broken states: a
+        // permission-only repair fires no watcher event, and with the panel
+        // closed nothing else re-reads the file. Without this the user is
+        // told their notes are unreadable until they relaunch.
+        store.retryUnavailableStorage()
+        // The panel is closed during a capture, so the HUD is the only signal
+        // the user gets; `inputWouldBeDiscarded` is the broader test because a
+        // note added to a document whose file turned unreadable never reaches
+        // disk, and reporting "Captured" for that is the lie to avoid.
+        guard !store.inputWouldBeDiscarded else {
+            Self.logger.error("capture discarded: \(text.count) chars had nowhere to go — the notes file can't be read")
+            onOutcome?(.notesUnavailable)
             return
         }
         if let item = store.add(text: text) {
