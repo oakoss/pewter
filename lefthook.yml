@@ -56,6 +56,25 @@ pre-push:
       # git's pre-push protocol delivers the ref list on stdin
       use_stdin: true
       run: .beads/hooks/pre-push {0}
+    # bd's own pre-push hook does not push Dolt history; without this, issue
+    # work never leaves the machine. Bounded and non-interactive because
+    # `exit 0` only runs once the command returns — a stalled remote or a
+    # passphrase prompt would hang every push. A missed sync is recoverable.
+    dolt-push:
+      run: |
+        timeout_s=${BEADS_HOOK_TIMEOUT:-120}
+        export GIT_TERMINAL_PROMPT=0
+        export GIT_SSH_COMMAND="ssh -o BatchMode=yes"
+        if command -v timeout >/dev/null 2>&1; then
+          timeout "$timeout_s" bd dolt push
+        elif command -v gtimeout >/dev/null 2>&1; then
+          gtimeout "$timeout_s" bd dolt push
+        elif command -v perl >/dev/null 2>&1; then
+          perl -e 'alarm shift; exec @ARGV' "$timeout_s" bd dolt push
+        else
+          echo "no timeout available; skipping bd dolt push" >&2
+        fi || echo "bd dolt push skipped or failed; issue history not synced this push" >&2
+        exit 0
 
 post-checkout:
   commands:

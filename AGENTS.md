@@ -127,7 +127,30 @@ bd close <id>         # Complete work
 - Run `bd prime` for detailed command reference and session close protocol
 - Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
 
-**Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See <https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md> for details and anti-patterns.
+**Architecture in one line:** issues live in a local Dolt DB — that is the
+source of truth — and reach the remote under `refs/dolt/data` only via an
+explicit `bd dolt push`. Nothing bd ships does that: its `pre-push` shim
+(`.beads/hooks/pre-push`) runs chained hooks only, and `pre-commit` refreshes a
+JSONL export only when `export.auto` is on. Our own `dolt-push` command in
+`lefthook.yml` is what pushes, and it is deliberately best-effort — it warns
+and exits 0 on failure so a stalled remote can't block a push. **So a green
+`git push` does not prove issue history synced.** Confirm from the remote ref
+when it matters.
+
+`.beads/interactions.jsonl` is an interaction log that rides along in commits,
+not an issue export, and this project has no `issues.jsonl` (`export.auto` is
+off) — so grepping it for an issue id says nothing about whether that issue is
+synced.
+
+```bash
+git ls-remote origin refs/dolt/data                       # current remote head
+git fetch -q origin refs/dolt/data \
+  && git log -1 --format=%ci FETCH_HEAD                   # that commit's date
+```
+
+See
+<https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md>
+for details and anti-patterns.
 
 ## Agent Context Profiles
 
