@@ -373,21 +373,39 @@ public final class ListStore {
         text.range(of: trimmedQuery, options: [.caseInsensitive, .diacriticInsensitive]) != nil
     }
 
-    public func flush() {
+    /// True when the document in memory is not on disk and no later save will
+    /// put it there: storage is unhealthy, or an adopted document is still in
+    /// flight and will replace this one on delivery. Sample it after a save.
+    /// False without storage — a detached store has nothing to lose.
+    ///
+    /// `.saveFailed` counts here though `inputWouldBeDiscarded` excludes it:
+    /// that exclusion rests on a later debounce landing, and at quit there is
+    /// no later debounce.
+    var documentDidNotReachDisk: Bool {
+        guard let storage else { return false }
+        return storage.health != .ok || !storage.accepts(generation)
+    }
+
+    /// Saves immediately, reporting whether anything was left unsaved.
+    ///
+    /// Returning the answer is what keeps it honest: a caller cannot sample it
+    /// before the save, where a suspension this very call resolves reads as
+    /// loss and an adoption it triggers reads as success.
+    @discardableResult
+    public func flush() -> Bool {
         storage?.saveNow(document, generation: generation)
-        // Asked after the save, not before: this is the save that decides the
-        // answer — a suspension it resolves would otherwise be reported as
-        // loss, and an adoption it triggers reports nothing at all. The write
-        // path logs suspensions only on the transition, long past by now, so
-        // without this the notes added during one die here leaving no trace,
-        // at the one moment a diagnostics report most needs it.
-        guard let storage, storage.health != .ok || !storage.accepts(generation) else { return }
-        // Bound outside the interpolation: the log closure would need an
-        // explicit `self` that swiftformat then strips back out.
+        let unsaved = documentDidNotReachDisk
+        guard unsaved else { return false }
+        // The write path logs suspensions only on the transition, long past by
+        // now, so without this the notes added during one die here leaving no
+        // trace, at the one moment a diagnostics report most needs it. Bound
+        // outside the interpolation: the log closure would need an explicit
+        // `self` that swiftformat then strips back out.
         let held = items.count
         Self.logger.error(
             "quitting without a durable save; the file does not have the current \(held, privacy: .public) notes"
         )
+        return true
     }
 
     private func persist() {

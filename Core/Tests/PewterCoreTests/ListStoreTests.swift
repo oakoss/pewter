@@ -870,6 +870,125 @@ struct ListStoreTests {
         #expect(store.inputWouldBeDiscarded)
     }
 
+    /// A clean quit says nothing. The quit-time warning is the last evidence a
+    /// "where did my notes go" report ever gets, so a false one sends the
+    /// reader hunting a loss that never happened.
+    @Test func aFlushThatLandsReportsNoLoss() {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let store = ListStore.loadFrom(storage: FileStorage.unwatched(fileURL: url))
+        store.add(text: "a note")
+
+        #expect(store.flush() == false)
+        // The absence of a warning is not evidence of a save; without this the
+        // test survives deleting the save from flush() altogether.
+        #expect(FileStorage(fileURL: url).load().document.items.map(\.text) == ["a note"])
+    }
+
+    /// The case the warning exists for: the file never became writable, so
+    /// everything held in memory dies here.
+    @Test func aFlushOntoAnUnreadableFileReportsLoss() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        store.add(text: "a note")
+        store.flush()
+
+        try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
+        store.add(text: "typed after the break")
+
+        #expect(store.flush() == true)
+        #expect(storage.health == .unreadable)
+    }
+
+    /// The flush itself is what resolves the suspension here, so a warning read
+    /// before it would assert a loss that the very same call prevents. This is
+    /// the likeliest repair of all — restoring the app's own bytes, which fires
+    /// no watcher event and so is noticed by nothing until something writes.
+    @Test func aFlushThatResolvesTheSuspensionReportsNoLoss() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        store.add(text: "a note")
+        store.flush()
+        let ourBytes = try Data(contentsOf: url)
+
+        try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
+        store.add(text: "typed after the break")
+        store.flush()
+        #expect(storage.health == .unreadable)
+
+        try ourBytes.write(to: url, options: .atomic)
+
+        // False only if read after the save: health is still `.unreadable`
+        // going in, and this call is what clears it.
+        #expect(store.flush() == false)
+        #expect(FileStorage(fileURL: url).load().document.items.map(\.text)
+            == ["a note", "typed after the break"])
+    }
+
+    /// Health is `.ok` and the file reads perfectly, yet the notes are gone —
+    /// the adopted document replaces them on delivery. Reading health alone
+    /// reports success for the one case that silently loses input, and the
+    /// adoption is triggered by this very save, so sampling before it would
+    /// report success too.
+    @Test func aFlushRefusedForAnInFlightAdoptionReportsLoss() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        store.add(text: "a note")
+        #expect(store.flush() == false)
+
+        // Foreign content, with storage healthy and level going in: the save
+        // itself is what adopts and moves the generation on.
+        try Data("- [ ] rewritten by hand\n".utf8).write(to: url, options: .atomic)
+
+        #expect(store.flush() == true)
+        #expect(storage.health == .ok)
+    }
+
+    /// A write that fails is loss at quit even though it may be transient —
+    /// `inputWouldBeDiscarded` excludes `.saveFailed` because a later debounce
+    /// may land, and at quit there is no later debounce. Nothing else pins that
+    /// divergence, so unifying the two predicates would pass silently.
+    @Test func aFlushThatCannotWriteReportsLoss() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        // A file where the notes directory should be, so creating it throws.
+        let blocker = root.appending(path: "blocker")
+        try Data("not a directory".utf8).write(to: blocker, options: .atomic)
+
+        let storage = FileStorage.unwatched(fileURL: blocker.appending(path: "notes.md"))
+        let store = ListStore.loadFrom(storage: storage)
+        store.add(text: "a note")
+
+        #expect(store.flush() == true)
+        #expect(storage.health != .ok)
+        #expect(storage.health != .unreadable)
+    }
+
     /// The guard is what keeps the reload off the hot path: it runs on every
     /// panel summon and every capture, and adopting unconditionally would
     /// re-read the file and wipe undo each time.
