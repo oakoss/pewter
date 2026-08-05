@@ -133,7 +133,17 @@ explicit `bd dolt push`, which our `pre-push` hook runs for you. The git hooks
 do *not* push Dolt history on their own; a `git commit` alone leaves issue work
 on this machine. `.beads/interactions.jsonl` is an interaction log that rides
 along in commits, not an issue export, and this project has no `issues.jsonl`
-(`export.auto` is off). See
+(`export.auto` is off) — so grepping it for an issue id says nothing about
+whether that issue is synced. To check sync state, read the remote ref
+directly:
+
+```bash
+git ls-remote origin refs/dolt/data                       # current remote head
+git fetch -q origin refs/dolt/data \
+  && git log -1 --format=%ci FETCH_HEAD                   # when it last moved
+```
+
+See
 <https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md>
 for details and anti-patterns.
 
