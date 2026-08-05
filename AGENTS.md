@@ -129,18 +129,23 @@ bd close <id>         # Complete work
 
 **Architecture in one line:** issues live in a local Dolt DB — that is the
 source of truth — and reach the remote under `refs/dolt/data` only via an
-explicit `bd dolt push`, which our `pre-push` hook runs for you. The git hooks
-do *not* push Dolt history on their own; a `git commit` alone leaves issue work
-on this machine. `.beads/interactions.jsonl` is an interaction log that rides
-along in commits, not an issue export, and this project has no `issues.jsonl`
-(`export.auto` is off) — so grepping it for an issue id says nothing about
-whether that issue is synced. To check sync state, read the remote ref
-directly:
+explicit `bd dolt push`. Nothing bd ships does that: its `pre-push` shim
+(`.beads/hooks/pre-push`) runs chained hooks only, and `pre-commit` refreshes a
+JSONL export only when `export.auto` is on. Our own `dolt-push` command in
+`lefthook.yml` is what pushes, and it is deliberately best-effort — it warns
+and exits 0 on failure so a stalled remote can't block a push. **So a green
+`git push` does not prove issue history synced.** Confirm from the remote ref
+when it matters.
+
+`.beads/interactions.jsonl` is an interaction log that rides along in commits,
+not an issue export, and this project has no `issues.jsonl` (`export.auto` is
+off) — so grepping it for an issue id says nothing about whether that issue is
+synced.
 
 ```bash
 git ls-remote origin refs/dolt/data                       # current remote head
 git fetch -q origin refs/dolt/data \
-  && git log -1 --format=%ci FETCH_HEAD                   # when it last moved
+  && git log -1 --format=%ci FETCH_HEAD                   # that commit's date
 ```
 
 See

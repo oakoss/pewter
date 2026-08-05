@@ -63,13 +63,17 @@ pre-push:
     dolt-push:
       run: |
         timeout_s=${BEADS_HOOK_TIMEOUT:-120}
-        if command -v timeout >/dev/null 2>&1; then bound="timeout $timeout_s"
-        elif command -v gtimeout >/dev/null 2>&1; then bound="gtimeout $timeout_s"
-        else bound=""
-        fi
-        GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" \
-          $bound bd dolt push \
-          || echo "bd dolt push skipped or failed; issue history not synced this push" >&2
+        export GIT_TERMINAL_PROMPT=0
+        export GIT_SSH_COMMAND="ssh -o BatchMode=yes"
+        if command -v timeout >/dev/null 2>&1; then
+          timeout "$timeout_s" bd dolt push
+        elif command -v gtimeout >/dev/null 2>&1; then
+          gtimeout "$timeout_s" bd dolt push
+        elif command -v perl >/dev/null 2>&1; then
+          perl -e 'alarm shift; exec @ARGV' "$timeout_s" bd dolt push
+        else
+          echo "no timeout available; skipping bd dolt push" >&2
+        fi || echo "bd dolt push skipped or failed; issue history not synced this push" >&2
         exit 0
 
 post-checkout:
