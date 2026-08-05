@@ -434,6 +434,11 @@ public final class FileStorage: @unchecked Sendable {
     /// afterwards is still handed the content on the next save.
     private func adoptExternalContent(_ document: MarkdownDocument, hash: SHA256Digest?) {
         dispatchPrecondition(condition: .onQueue(queue))
+        // Load-bearing for a deletion, where nothing else refuses the queued
+        // save: the digest is cleared and the file is gone, so the save finds
+        // `.absent`, writes, and resurrects the notes the user just deleted
+        // along with an edit they never saw land. An external edit is refused
+        // by generation or foreign hash; a deletion is refused by this.
         pendingSave?.cancel()
         pendingSave = nil
         guard let onExternalChange else {
@@ -529,6 +534,19 @@ public final class FileStorage: @unchecked Sendable {
         // invalidate the current descriptor.
         rewatch()
         checkForExternalContent(retriesLeft: 1)
+    }
+
+    /// Runs the watcher's reaction to a file event, on the queue it expects.
+    ///
+    /// For tests: suppressing a change that matches what is already on disk is
+    /// invisible by design — nothing is delivered — so a test cannot wait for
+    /// it, and a fixed delay passes whenever the event merely arrived late,
+    /// which is exactly when a broken suppression would hide.
+    ///
+    /// Synchronous only when the read succeeds: an unreadable or absent file
+    /// reschedules itself, and this returns before that retry runs.
+    func reactToFileEvent() {
+        queue.sync { handleFileEvent() }
     }
 
     private func checkForExternalContent(retriesLeft: Int) {

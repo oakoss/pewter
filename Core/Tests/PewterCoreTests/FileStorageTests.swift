@@ -46,7 +46,80 @@ struct FileStorageTests {
         #expect(reloaded.items.count == 5)
     }
 
-    @Test func externalChangeIsDetectedAndSelfWritesIgnored() async throws {
+    /// An external deletion cancels a queued save. Nothing else refuses it:
+    /// the digest is cleared and the file is gone, so the save finds `.absent`
+    /// and writes — recreating the notes the user just deleted, plus an edit
+    /// they never saw land. The generation and foreign-hash guards that cover
+    /// an external edit have nothing to act on here.
+    @Test func anExternalDeletionCancelsAQueuedSave() async throws {
+        let url = temporaryFileURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        // Live watcher, no store attached: the deletion is adopted detached,
+        // which is the path where neither other guard applies.
+        let storage = FileStorage(fileURL: url, debounceInterval: 0.5)
+        var document = MarkdownDocument()
+        document.append(Item(text: "original"))
+        storage.saveNow(document, generation: .initial)
+
+        document.append(Item(text: "queued edit"))
+        storage.scheduleSave(document, generation: .initial)
+        try FileManager.default.removeItem(at: url)
+
+        // Past the read retry and the debounce, so a surviving save would have
+        // fired by now.
+        try await Task.sleep(for: .milliseconds(1200))
+
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        // Also keeps `storage` alive across the window above: nothing else
+        // retains it, and both the watcher handler and the debounced work item
+        // hold it weakly.
+        #expect(storage.health == .ok)
+    }
+
+    /// A watcher event whose content matches what the storage believes is on
+    /// disk is not a change. Without the suppression the app adopts its own
+    /// bytes: undo history is cleared and the generation moves on every save,
+    /// and anything added between the save and the delivery is dropped.
+    ///
+    /// Driven directly rather than through the kernel, and discriminating on
+    /// *which* delivery lands first rather than on a delay: a matching event
+    /// that is merely slow looks identical to a suppressed one until the
+    /// different content arrives and overwrites the evidence.
+    @Test func aWatcherEventMatchingWhatIsOnDiskIsNotDelivered() async throws {
+        let url = temporaryFileURL()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        var document = MarkdownDocument()
+        document.append(Item(text: "original"))
+        storage.saveNow(document, generation: .initial)
+        let ourBytes = try Data(contentsOf: url)
+
+        let external = Box()
+        storage.setOnExternalChange { external.append($0, $1) }
+
+        try ourBytes.write(to: url, options: .atomic)
+        storage.reactToFileEvent()
+
+        try Data("- [ ] genuinely different\n".utf8).write(to: url, options: .atomic)
+        storage.reactToFileEvent()
+
+        // Deliveries are serial and FIFO, so if the matching event was
+        // delivered at all it is the one that arrives first.
+        try await waitUntilStorage { external.count >= 1 }
+        #expect(
+            external.first?.items.map(\.text) == ["genuinely different"],
+            "the matching write was delivered instead of suppressed"
+        )
+    }
+
+    /// A save with a live watcher produces no callback — but not because of
+    /// the hash: `write` calls `rewatch()` from inside the same queue-held
+    /// block, cancelling the source before its already-queued handler can run.
+    /// The event is destroyed, not compared. The hash guard is pinned
+    /// separately by `aWatcherEventMatchingWhatIsOnDiskIsNotDelivered`.
+    @Test func aSelfWriteIsCancelledBeforeDeliveryWhileExternalEditsArrive() async throws {
         let url = temporaryFileURL()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
@@ -71,8 +144,7 @@ struct FileStorageTests {
 
         // External write (different content, not via storage): must trigger.
         try Data("- [ ] outside edit\n".utf8).write(to: url, options: .atomic)
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(changes.count == 1)
+        try await waitUntilStorage { changes.count == 1 }
         #expect(changes.last?.items.first?.text == "outside edit")
     }
 
@@ -448,8 +520,7 @@ struct FileStorageTests {
         try await Task.sleep(for: .milliseconds(200))
         try Data("- [ ] recreated\n".utf8).write(to: url)
 
-        try await Task.sleep(for: .milliseconds(400))
-        #expect(changes.last?.items.first?.text == "recreated")
+        try await waitUntilStorage { changes.last?.items.first?.text == "recreated" }
     }
 
     @Test func externalEditCancelsPendingDebouncedSave() async throws {
@@ -917,6 +988,12 @@ private final class Box: @unchecked Sendable {
 
     var last: MarkdownDocument? {
         lock.withLock { documents.last }
+    }
+
+    /// The earliest delivery. Which one arrived *first* is what distinguishes
+    /// a suppressed change from one that was merely slow.
+    var first: MarkdownDocument? {
+        lock.withLock { documents.first }
     }
 
     /// The generation of the most recent delivery, or `.initial` before any.
