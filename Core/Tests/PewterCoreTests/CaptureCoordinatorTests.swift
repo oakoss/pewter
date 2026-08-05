@@ -128,6 +128,35 @@ struct CaptureCoordinatorTests {
         #expect(store.items.map(\.text) == ["a real note"])
     }
 
+    /// An external edit the app never saw makes the capture's own retry adopt
+    /// it, which leaves the store a generation behind. Refusing there reported
+    /// "Can't read your notes file" about a file that reads perfectly, sending
+    /// the user to fix permissions when the remedy was to capture again. The
+    /// retry drains the adoption instead, so the capture lands on top of it.
+    @Test func aCaptureThatTriggersAnAdoptionIsNotBlamedOnTheFile() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-capture-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        store.add(text: "a real note")
+        store.flush()
+
+        try Data("- [ ] edited outside\n".utf8).write(to: url, options: .atomic)
+
+        let reader = FakeReader(result: "captured after an outside edit")
+        let capture = FakeCapture(result: .copied("should not be used"))
+        let (coordinator, _, outcomes) = makeCoordinator(reader: reader, capture: capture, store: store)
+        coordinator.captureSelection()
+
+        #expect(outcomes.all.count == 1)
+        if case .notesUnavailable = try #require(outcomes.all.first) {
+            Issue.record("the file is readable; the capture must not blame it")
+        }
+        #expect(store.items.map(\.text) == ["edited outside", "captured after an outside edit"])
+    }
+
     /// The capture text was read fine — there is simply nowhere to put it.
     /// Storing it anyway would add to a document that gets replaced the
     /// moment the real notes are read, so it fails where the user can see it.

@@ -185,13 +185,31 @@ public final class ListStore {
     /// one the app hasn't noticed yet, which health alone can't do since a mode
     /// change fires no watcher event. Unconditional for that second reason:
     /// gating on `health == .unreadable` would let the first capture after a
-    /// break report success. Synchronous, so health is current on return.
+    /// break report success.
+    ///
+    /// Synchronous, so health *and the document* are current on return: an
+    /// adoption found here is taken up rather than awaited, which replaces the
+    /// document and clears undo history. A panel summon can therefore swap the
+    /// list out before it draws.
     public func retryUnavailableStorage() {
         if documentIsPlaceholder {
             reloadIfPlaceholder()
-        } else {
-            storage?.refreshFromDisk()
+            return
         }
+        guard let storage else { return }
+        // Reconciling can adopt, which leaves this store behind until the
+        // delivery arrives on the next main-queue turn — and a surface asking
+        // in between refuses, naming a file that reads perfectly. Taking the
+        // adoption here instead lets the capture land on it. The delivery
+        // still in flight carries this same generation, so it is dropped
+        // rather than applied twice.
+        //
+        // A store left behind by an *earlier* adoption is not covered: there
+        // is nothing to hand back, and re-reading to catch up would race an
+        // unlink into replacing the document with an empty one. That window
+        // closes by itself when the delivery lands on the next turn.
+        guard let adopted = storage.refreshFromDisk() else { return }
+        applyExternalChange(adopted.document, generation: adopted.generation)
     }
 
     /// Refused on a placeholder document: the note would be dropped when the

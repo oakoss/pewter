@@ -61,3 +61,4 @@
 {"id":"int-915bb5f7434284441dfc73dcd5af63fa","kind":"field_change","created_at":"2026-08-04T23:02:34.740261Z","actor":"Jace Babin","issue_id":"pw-nmv","extra":{"field":"priority","new_value":"4","old_value":"3"}}
 {"id":"int-ea9aecbfaeb4a32c569cfd4d297f9488","kind":"field_change","created_at":"2026-08-05T00:53:00.685312Z","actor":"Jace Babin","issue_id":"pw-m5q","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
 {"id":"int-2f8b6900496b55b041d017cfeaed7e3b","kind":"field_change","created_at":"2026-08-05T01:33:01.87704Z","actor":"Jace Babin","issue_id":"pw-u3i","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Closed"}}
+{"id":"int-2ac3e54918cc5e0565156f1de91640f4","kind":"field_change","created_at":"2026-08-05T02:05:22.125443Z","actor":"Jace Babin","issue_id":"pw-ba3","extra":{"field":"status","new_value":"open","old_value":"in_progress"}}
