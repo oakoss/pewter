@@ -77,8 +77,14 @@ limitations, dismissed review findings with their evidence, relevant
   pass; exit 1 = a check failed *or* gh errored — read the output before
   concluding CI is red). The sleep matters — checks register a few
   seconds after push, and an immediate watch dies with "no checks
-  reported", which also exits 1. "Copilot review posted" is itself a
-  check, so this covers the Copilot wait too.
+  reported", which also exits 1. `--watch` blocks until every check
+  reports, so a third-party reviewer's check can hold it open long after
+  our own jobs are green; `gh pr checks <number>` without `--watch` gives
+  the current state immediately when that happens.
+- A green check from a bot reviewer does not mean a review happened.
+  CodeRabbit reports `pass` with "Review rate limited" in the output line
+  when it declines to run, so read the reason rather than the colour, and
+  re-request with an `@coderabbitai review` comment if the change needs it.
 
 ## Non-Interactive Shell Commands
 
