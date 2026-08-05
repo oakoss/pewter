@@ -127,21 +127,31 @@ public final class FileStorage: @unchecked Sendable {
         queue.sync { currentHealth }
     }
 
+    /// What a reconciliation concluded. `.adopted` carries the content so the
+    /// caller can take it up without reading again; a writable reconciliation
+    /// never carries one, which the type makes unrepresentable rather than
+    /// leaving it to be proved from the switch.
+    private enum Reconciliation {
+        case writable
+        case blocked
+        case adopted(document: MarkdownDocument, generation: DocumentGeneration)
+    }
+
     /// Brings health and, where needed, the adopted document back in line with
-    /// what is actually on disk. Returns whether writing is safe.
+    /// what is actually on disk: whether writing is safe, and what was adopted
+    /// if anything — parsed once here so a caller need not read again.
     ///
     /// Split out of `write` so a surface that must decide *before* accepting
     /// input can ask the same question without writing. Health alone is not an
     /// answer: a mode change fires no watcher event, so it can still read `.ok`
     /// about a file that has already broken, and the first capture after that
     /// would be reported as saved.
-    @discardableResult
-    private func reconcileWithDisk(noticedAt context: String) -> Bool {
+    private func reconcileWithDisk(noticedAt context: String) -> Reconciliation {
         dispatchPrecondition(condition: .onQueue(queue))
         switch inspectOnDisk() {
         case .absent, .ours:
             resumeSavesIfSuspended()
-            return true
+            return .writable
         case let .unreadable(reason):
             // Same protection as at load: never overwrite content the app
             // can't read, so can't have seen. Re-arm on the way out — landing
@@ -158,20 +168,35 @@ public final class FileStorage: @unchecked Sendable {
             }
             rewatch()
             setHealth(.unreadable)
-            return false
+            return .blocked
         case let .foreign(text, hash):
             resumeSavesIfSuspended()
             logger.warning("notes file changed on disk with no watcher event; adopting it rather than overwriting")
             rewatch()
-            adoptExternalContent(MarkdownDocument.parse(text), hash: hash)
-            return false
+            let adopted = MarkdownDocument.parse(text)
+            let before = currentGeneration
+            adoptExternalContent(adopted, hash: hash)
+            // A detached storage leaves the generation alone, and reporting one
+            // it never minted would strand every later save.
+            guard currentGeneration != before else { return .blocked }
+            return .adopted(document: adopted, generation: currentGeneration)
         }
     }
 
-    /// Re-reads the file's state without writing, so a caller can find out
-    /// whether input accepted right now would survive.
-    func refreshFromDisk() {
-        queue.sync { _ = reconcileWithDisk(noticedAt: "on retry") }
+    /// Re-reads the file's state without writing, bringing health back in line
+    /// with what is on disk.
+    ///
+    /// Returns the content it adopted, if any, so the caller can take it up
+    /// without a second read. Re-reading instead would race an unlink landing
+    /// between the two: `load()` reports an absent file as an empty document,
+    /// and applying that would trade the user's notes for the gap.
+    func refreshFromDisk() -> (document: MarkdownDocument, generation: DocumentGeneration)? {
+        queue.sync {
+            guard case let .adopted(document, generation) = reconcileWithDisk(noticedAt: "on retry") else {
+                return nil
+            }
+            return (document, generation)
+        }
     }
 
     /// True when a document built on `generation` can still be saved.
@@ -337,7 +362,7 @@ public final class FileStorage: @unchecked Sendable {
             return
         }
         loggedRefusedSave = false
-        guard reconcileWithDisk(noticedAt: "at save time") else { return }
+        guard case .writable = reconcileWithDisk(noticedAt: "at save time") else { return }
         do {
             let directory = fileURL.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

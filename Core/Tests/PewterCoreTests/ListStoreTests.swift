@@ -873,36 +873,56 @@ struct ListStoreTests {
         #expect(store.inputWouldBeDiscarded)
     }
 
-    /// Recovering by adopting leaves the store a generation behind until the
-    /// delivery lands, and that delivery replaces the document. Health is
-    /// `.ok` throughout, so nothing else here would stop a capture from
-    /// reporting success for a note the adoption is about to discard.
+    /// Not every adoption is drained: a debounced save that finds foreign
+    /// content adopts and leaves the store behind with nothing to rebase it
+    /// until the delivery lands. Health is `.ok` and the file reads perfectly
+    /// throughout, so the generation is the only thing that knows input
+    /// accepted now would be replaced.
     @Test func inputIsRefusedWhileAnAdoptionIsStillInFlight() throws {
         let url = FileManager.default.temporaryDirectory
             .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
 
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
         store.add(text: "real note")
         store.flush()
 
-        try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
-        store.add(text: "typed after the break")
-        store.flush()
-        #expect(storage.health == .unreadable)
-
-        // Repaired by rewriting with different content: foreign, so the retry
-        // adopts rather than overwriting.
+        // Foreign content, adopted by the save itself rather than by a retry.
         try Data("- [ ] rewritten by hand\n".utf8).write(to: url, options: .atomic)
-        store.retryUnavailableStorage()
+        store.flush()
 
         #expect(storage.health == .ok)
         #expect(store.inputWouldBeDiscarded)
+    }
+
+    /// The capture that triggers an adoption used to be refused and told the
+    /// notes file couldn't be read — while the file read perfectly and the
+    /// real remedy was "capture again". The retry drains the adoption so it
+    /// lands instead.
+    @Test func aCaptureThatTriggersAnAdoptionStillLands() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        store.add(text: "a note")
+        store.flush()
+
+        try Data("- [ ] edited outside\n".utf8).write(to: url, options: .atomic)
+
+        // What a capture does before deciding whether to refuse.
+        store.retryUnavailableStorage()
+
+        #expect(storage.health == .ok)
+        #expect(!store.inputWouldBeDiscarded, "the file reads fine; refusing here blames the wrong thing")
+        #expect(store.items.map(\.text) == ["edited outside"])
+
+        store.add(text: "captured after the adoption")
+        store.flush()
+        #expect(FileStorage(fileURL: url).load().document.items.map(\.text)
+            == ["edited outside", "captured after the adoption"])
     }
 
     /// A clean quit says nothing. The quit-time warning is the last evidence a
@@ -1112,6 +1132,88 @@ struct ListStoreTests {
                 DispatchQueue.main.async { once.resume(continuation) }
             }
         }
+    }
+
+    /// A break landing while the store is behind is not a reason to replace
+    /// the document: there is nothing readable to take up, so the real notes
+    /// and the refusal that protects them both have to survive the retry.
+    @Test func aRetryLeavesTheDocumentAloneWhenTheFileBreaksWhileBehind() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        store.add(text: "a real note")
+        store.flush()
+
+        // Behind: the save adopted foreign content and the delivery has not
+        // arrived, so nothing has rebased this store.
+        try Data("- [ ] rewritten by hand\n".utf8).write(to: url, options: .atomic)
+        store.flush()
+        #expect(store.inputWouldBeDiscarded)
+
+        // And now the file breaks, before the retry runs.
+        try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
+        store.retryUnavailableStorage()
+
+        #expect(storage.health == .unreadable)
+        #expect(!store.documentIsPlaceholder, "a real document must not be relabelled a placeholder")
+        #expect(store.items.map(\.text) == ["a real note"])
+    }
+
+    /// The other repair shape: a runtime break fixed by rewriting the file
+    /// rather than by restoring permissions. That is foreign content, so the
+    /// retry adopts it — and the notes typed during the suspension go with it.
+    /// The adoption would discard them whenever it landed; the retry only
+    /// makes it happen where the user can see it.
+    @Test func aRuntimeBreakRepairedByRewritingIsAdoptedByTheRetry() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        store.add(text: "a real note")
+        store.flush()
+
+        try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
+        store.add(text: "typed after the break")
+        store.flush()
+        #expect(storage.health == .unreadable)
+
+        try Data("- [ ] rewritten by hand\n".utf8).write(to: url, options: .atomic)
+        store.retryUnavailableStorage()
+
+        #expect(storage.health == .ok)
+        #expect(!store.inputWouldBeDiscarded)
+        #expect(store.items.map(\.text) == ["rewritten by hand"])
+    }
+
+    /// An unlink landing while the store is behind must not empty it. A
+    /// second read would report the absent file as an empty document — not a
+    /// placeholder — and applying that trades the user's notes for the gap,
+    /// with `inputWouldBeDiscarded` then saying input is safe.
+    @Test func aRetryDoesNotEmptyTheStoreWhenTheFileIsGone() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        store.add(text: "a real note")
+        store.flush()
+
+        // Behind: adopted by the save, delivery not yet arrived.
+        try Data("- [ ] rewritten by hand\n".utf8).write(to: url, options: .atomic)
+        store.flush()
+        #expect(store.inputWouldBeDiscarded)
+
+        try FileManager.default.removeItem(at: url)
+        store.retryUnavailableStorage()
+
+        #expect(store.items.map(\.text) == ["a real note"], "the notes must survive the file going away")
+        #expect(!store.documentIsPlaceholder)
     }
 
     /// The guard is what keeps the reload off the hot path: it runs on every
