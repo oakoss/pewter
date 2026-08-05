@@ -16,17 +16,26 @@ public final class FileStorage: @unchecked Sendable {
     }
 
     /// Which document a save is built on. The storage hands one out with
-    /// every external change it adopts and takes it back on every save, so a
-    /// save that predates an adoption is refused rather than trusted.
+    /// every external change it adopts and every load, and takes it back on
+    /// every save, so a save that predates either is refused rather than
+    /// trusted.
     ///
     /// Only this file can mint one, so a caller cannot fabricate a newer
     /// generation to get a stale save accepted. `.initial` can be named
     /// module-wide, which is safe for the same reason: these only ever move
     /// forward, so the baseline matches exactly once — before the first
-    /// delivery, which is when claiming it is true. Rewinding the counter
-    /// anywhere would break that and let one value be minted twice.
-    public struct DocumentGeneration: Equatable, Sendable {
+    /// delivery or load, which is when claiming it is true. Rewinding the
+    /// counter anywhere would break that and let one value be minted twice.
+    public struct DocumentGeneration: Equatable, Comparable, Sendable {
         fileprivate let value: UInt64
+
+        /// Ordering is what lets a receiver drop a delivery it has already
+        /// moved past. Equality cannot tell a lower generation from a higher
+        /// one, and a delivery in flight when a load superseded it carries
+        /// exactly that.
+        public static func < (lhs: Self, rhs: Self) -> Bool {
+            lhs.value < rhs.value
+        }
 
         /// Before any external change: what a freshly loaded document is on.
         static let initial = DocumentGeneration(value: 0)
@@ -203,11 +212,15 @@ public final class FileStorage: @unchecked Sendable {
 
     // MARK: - Load / save
 
-    /// Reads the file and hands back the generation that document is on, so
-    /// a store built from it starts level with the storage rather than behind
+    /// Reads the file and mints a fresh generation for what it read, so a
+    /// store built from it starts level with the storage rather than behind
     /// it. A store that started behind could never catch up: the known hash
     /// suppresses further deliveries, and a refused save returns before it
     /// would adopt anything.
+    ///
+    /// Minting rather than handing back what it found is what lets the caller
+    /// outrank a delivery still in flight: both would otherwise hold the same
+    /// value, and the late one would win on arrival.
     ///
     /// Rewinding to the baseline here would be the same repair, but
     /// generations only move forward: a stale holder of the earlier value
@@ -268,6 +281,11 @@ public final class FileStorage: @unchecked Sendable {
             pendingSave?.cancel()
             pendingSave = nil
             rewatch()
+            // A read that supersedes: the caller leaves holding the current
+            // file, so any delivery still in flight describes a document it
+            // has already moved past. Handing back the generation as found
+            // would make the two indistinguishable and let the late one win.
+            currentGeneration = currentGeneration.next
             return (document, currentGeneration, isUnreadable)
         }
     }
