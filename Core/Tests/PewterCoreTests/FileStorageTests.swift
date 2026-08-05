@@ -54,7 +54,9 @@ struct FileStorageTests {
         var document = MarkdownDocument()
         document.append(Item(text: "original"))
         storage.saveNow(document, generation: .initial)
-        _ = storage.load()
+        // Rebased onto what load() hands back: it mints, so a save still on
+        // the baseline is refused before it reaches the write.
+        let generation = storage.load().generation
 
         let changes = Box()
         storage.setOnExternalChange { document, generation in
@@ -63,7 +65,7 @@ struct FileStorageTests {
 
         // Self-write: must NOT trigger the callback.
         document.append(Item(text: "self write"))
-        storage.saveNow(document, generation: .initial)
+        storage.saveNow(document, generation: generation)
         try await Task.sleep(for: .milliseconds(150))
         #expect(changes.count == 0)
 
@@ -132,13 +134,14 @@ struct FileStorageTests {
         try Data([0xFF, 0xFE, 0x00]).write(to: url)
 
         let storage = FileStorage(fileURL: url)
-        let document = storage.load().document
+        let loaded = storage.load()
+        let document = loaded.document
         #expect(document.items.isEmpty)
         #expect(storage.health == .unreadable)
 
         var edited = MarkdownDocument()
         edited.append(Item(text: "must not land"))
-        storage.saveNow(edited, generation: .initial)
+        storage.saveNow(edited, generation: loaded.generation)
 
         // The original bytes survive: a broken load can't overwrite the file.
         #expect(try Data(contentsOf: url) == Data([0xFF, 0xFE, 0x00]))
@@ -155,7 +158,7 @@ struct FileStorageTests {
         var document = MarkdownDocument()
         document.append(Item(text: "original"))
         storage.saveNow(document, generation: .initial)
-        _ = storage.load()
+        let generation = storage.load().generation
         #expect(storage.health != .unreadable)
 
         let changes = HealthBox()
@@ -164,7 +167,7 @@ struct FileStorageTests {
         // Schedule an in-app edit, then the file becomes unreadable before
         // the debounce fires.
         document.append(Item(text: "pending edit"))
-        storage.scheduleSave(document, generation: .initial)
+        storage.scheduleSave(document, generation: generation)
         let invalidBytes = Data([0xFF, 0xFE, 0x00])
         try invalidBytes.write(to: url, options: .atomic)
 
@@ -177,7 +180,10 @@ struct FileStorageTests {
         try await waitUntilStorage { changes.all.last == .unreadable }
 
         // Past the debounce window: the pending save must not have landed —
-        // the unreadable content the app never saw stays intact.
+        // the unreadable content the app never saw stays intact. The watcher
+        // cancels the queued save, so this pins that cancellation rather than
+        // the write-time refusal; that one is
+        // `fileTurningUnreadableBeforeASaveSuspendsInsteadOfOverwriting`.
         try await Task.sleep(for: .milliseconds(1200))
         #expect(try Data(contentsOf: url) == invalidBytes)
     }
@@ -265,7 +271,9 @@ struct FileStorageTests {
         var document = MarkdownDocument()
         document.append(Item(text: "first"))
         storage.saveNow(document, generation: .initial)
-        _ = storage.load()
+        // load() moves the generation on, so later saves must rebase onto what
+        // it hands back or they are refused before reaching the write.
+        let generation = storage.load().generation
 
         let changes = HealthBox()
         storage.setOnHealthChange { changes.append($0) }
@@ -273,7 +281,7 @@ struct FileStorageTests {
         storage.setOnExternalChange { external.append($0, $1) }
 
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
-        storage.saveNow(document, generation: .initial)
+        storage.saveNow(document, generation: generation)
         try await waitUntilStorage { changes.all.contains {
             if case .saveFailed = $0 {
                 true
@@ -452,12 +460,12 @@ struct FileStorageTests {
         var document = MarkdownDocument()
         document.append(Item(text: "original"))
         storage.saveNow(document, generation: .initial)
-        _ = storage.load()
+        let generation = storage.load().generation
 
         // Schedule a save, then simulate an external edit landing before the
         // debounce fires. The stale save must not clobber the external edit.
         document.append(Item(text: "in-memory edit"))
-        storage.scheduleSave(document, generation: .initial)
+        storage.scheduleSave(document, generation: generation)
         try await Task.sleep(for: .milliseconds(50))
         try Data("- [ ] external wins\n".utf8).write(to: url, options: .atomic)
 

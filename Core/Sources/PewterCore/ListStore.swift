@@ -97,6 +97,14 @@ public final class ListStore {
         _ newDocument: MarkdownDocument,
         generation: FileStorage.DocumentGeneration
     ) {
+        // A reload supersedes whatever was in flight when it ran, so a
+        // delivery on a generation this store has already applied describes an
+        // older document — applying it would discard everything added since,
+        // including the capture that prompted the reload.
+        if generation <= self.generation {
+            Logger.storage.notice("dropped an external delivery the store has already moved past")
+            return
+        }
         let before = document.items.count
         let after = newDocument.items.count
         Logger.storage

@@ -2,6 +2,21 @@ import Foundation
 @testable import PewterCore
 import Testing
 
+/// Resumes a continuation at most once: health is delivered on registration
+/// and again on every change, and a second resume traps.
+private final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+
+    func resume(_ continuation: CheckedContinuation<Void, Never>) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !done else { return }
+        done = true
+        continuation.resume()
+    }
+}
+
 @MainActor
 struct ListStoreTests {
     @Test func addTrimsAndRejectsEmpty() {
@@ -183,12 +198,19 @@ struct ListStoreTests {
     }
 
     @Test func externalChangeClearsRedo() throws {
-        let store = ListStore()
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
         let victim = try #require(store.add(text: "victim"))
         store.delete(ids: [victim.id])
         _ = store.undoDelete()
 
-        store.applyExternalChange(MarkdownDocument.parse("- [ ] rewritten outside\n"), generation: .initial)
+        store.applyExternalChange(
+            MarkdownDocument.parse("- [ ] rewritten outside\n"),
+            generation: storage.load().generation
+        )
 
         #expect(store.redo() == nil)
         #expect(store.items.map(\.text) == ["rewritten outside"])
@@ -603,11 +625,18 @@ struct ListStoreTests {
     }
 
     @Test func applyExternalChangeClearsUndoHistory() throws {
-        let store = ListStore()
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
         let item = try #require(store.add(text: "deleted in app"))
         store.delete(ids: [item.id])
 
-        store.applyExternalChange(MarkdownDocument.parse("- [ ] rewritten outside\n"), generation: .initial)
+        store.applyExternalChange(
+            MarkdownDocument.parse("- [ ] rewritten outside\n"),
+            generation: storage.load().generation
+        )
         #expect(store.items.map(\.text) == ["rewritten outside"])
         #expect(store.undoDelete().isEmpty)
     }
@@ -666,12 +695,18 @@ struct ListStoreTests {
         )
         try Data([0xFF, 0xFE, 0x00]).write(to: url)
 
-        let store = ListStore.loadFrom(storage: FileStorage.unwatched(fileURL: url))
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
         #expect(store.items.isEmpty)
         #expect(store.documentIsPlaceholder)
 
         // Adopting real content makes the document stand for itself again.
-        store.applyExternalChange(MarkdownDocument.parse("- [ ] real note\n"), generation: .initial)
+        // The generation comes from storage: a delivery the store has already
+        // moved past is dropped, so a hardcoded baseline would never land.
+        store.applyExternalChange(
+            MarkdownDocument.parse("- [ ] real note\n"),
+            generation: storage.load().generation
+        )
         #expect(!store.documentIsPlaceholder)
         #expect(store.items.map(\.text) == ["real note"])
     }
@@ -987,6 +1022,96 @@ struct ListStoreTests {
         #expect(store.flush() == true)
         #expect(storage.health != .ok)
         #expect(storage.health != .unreadable)
+    }
+
+    /// A reload takes what is on disk and moves the store forward, but a
+    /// watcher adoption may already have a delivery in flight carrying the
+    /// generation the reload lands on. Applying it replaces the document and
+    /// takes anything added since with it — the capture that triggered the
+    /// reload most of all.
+    @Test func aDeliveryTheStoreHasAlreadyAppliedIsDropped() {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        // Every generation is minted exactly once, so a delivery in flight
+        // always carries a strictly lower value than the reload that
+        // superseded it — never an equal one. Two distinct mints applied out
+        // of order are the shape the guard has to survive.
+        let inFlight = storage.load().generation
+        let reload = storage.load().generation
+
+        store.applyExternalChange(MarkdownDocument.parse("- [ ] from disk\n"), generation: reload)
+        store.add(text: "typed after the reload")
+
+        store.applyExternalChange(MarkdownDocument.parse("- [ ] from disk\n"), generation: inFlight)
+
+        #expect(store.items.map(\.text) == ["from disk", "typed after the reload"])
+    }
+
+    /// What makes the drop above possible: a reload that handed back the
+    /// generation it found would be indistinguishable from the delivery racing
+    /// it, and there would be nothing to compare.
+    @Test func loadTakesAFreshGenerationSoAnInFlightDeliveryIsOutranked() {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        #expect(storage.load().generation < storage.load().generation)
+    }
+
+    /// Drives the real race rather than simulating it: a genuine adoption is
+    /// queued, a reload supersedes it, and a note is added in the window
+    /// between. Registering for health after the adoption queues a callback
+    /// behind the delivery on the same serial event queue, so awaiting it is a
+    /// barrier — no sleeps, and it rests on the same FIFO ordering production
+    /// already depends on.
+    @Test func aDeliveryQueuedBeforeAReloadLosesToItEndToEnd() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data([0xFF, 0xFE, 0x00]).write(to: url)
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        #expect(store.documentIsPlaceholder)
+
+        try Data("- [ ] repaired by hand\n".utf8).write(to: url, options: .atomic)
+
+        // Foreign content, so this is a real adoption with a real delivery in
+        // flight. Main is held by this test body until the await below.
+        store.flush()
+        store.reloadIfPlaceholder()
+        store.add(text: "captured in the window")
+
+        await waitForPendingDeliveries(of: storage)
+        #expect(store.items.map(\.text) == ["repaired by hand", "captured in the window"])
+
+        // Positive control: a delivery the store has NOT moved past still
+        // applies. Without it, a barrier that stopped working would leave the
+        // assertion above passing for the wrong reason.
+        try Data("- [ ] later external edit\n".utf8).write(to: url, options: .atomic)
+        store.flush()
+        await waitForPendingDeliveries(of: storage)
+        #expect(store.items.map(\.text) == ["later external edit"])
+    }
+
+    /// Returns once anything queued on the storage's event queue before the
+    /// call has been delivered and applied on the main queue.
+    private func waitForPendingDeliveries(of storage: FileStorage) async {
+        let once = ResumeOnce()
+        await withCheckedContinuation { continuation in
+            storage.setOnHealthChange { _ in
+                DispatchQueue.main.async { once.resume(continuation) }
+            }
+        }
     }
 
     /// The guard is what keeps the reload off the hot path: it runs on every
