@@ -4,7 +4,7 @@ import Testing
 
 /// Resumes a continuation at most once: health is delivered on registration
 /// and again on every change, and a second resume traps.
-private final class ResumeOnce: @unchecked Sendable {
+final class ResumeOnce: @unchecked Sendable {
     private let lock = NSLock()
     private var done = false
 
@@ -21,14 +21,44 @@ private final class ResumeOnce: @unchecked Sendable {
 struct ListStoreTests {
     @Test func addTrimsAndRejectsEmpty() {
         let store = ListStore()
-        #expect(store.add(text: "  hello  ")?.text == "hello")
-        #expect(store.add(text: "   \n ") == nil)
+        // Matched rather than unwrapped via `.item`: this test is about `add`
+        // itself, and `.item` is for tests whose subject is what comes after.
+        guard case let .added(item) = store.add(text: "  hello  ") else {
+            Issue.record("expected the add to land")
+            return
+        }
+        #expect(item.text == "hello")
+        #expect(store.add(text: "   \n ") == .emptyText)
         #expect(store.items.count == 1)
+    }
+
+    /// The two failures need opposite messages — "nothing to add" is about the
+    /// input, a refusal is about the file — and an optional return made them
+    /// indistinguishable, so a caller inferring from nil reported whichever it
+    /// happened to assume.
+    @Test func addSeparatesEmptyTextFromARefusal() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data([0xFF, 0xFE, 0x00]).write(to: url)
+
+        let store = ListStore.loadFrom(storage: FileStorage.unwatched(fileURL: url))
+        #expect(store.add(text: "real text with nowhere to go")
+            == .refused(.unreadable(cause: .notUTF8)))
+        // Whitespace on a broken file is still nothing to add: naming a repair
+        // for text that was never going to be stored sends the user to fix
+        // something that would not have helped.
+        #expect(store.add(text: "   ") == .emptyText)
+        #expect(store.items.isEmpty)
     }
 
     @Test func toggleAndDelete() throws {
         let store = ListStore()
-        let item = try #require(store.add(text: "toggle me"))
+        let item = try #require(store.add(text: "toggle me").item)
 
         store.toggleDone(ids: [item.id])
         #expect(store.items[0].done == true)
@@ -41,9 +71,9 @@ struct ListStoreTests {
 
     @Test func mergeJoinsInDocumentOrderAtFirstPosition() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "first"))
-        let b = try #require(store.add(text: "second"))
-        let c = try #require(store.add(text: "third"))
+        let a = try #require(store.add(text: "first").item)
+        let b = try #require(store.add(text: "second").item)
+        let c = try #require(store.add(text: "third").item)
 
         // Set input: document order must win regardless of selection order.
         let merged = try #require(store.merge(ids: [c.id, a.id]))
@@ -57,8 +87,8 @@ struct ListStoreTests {
 
     @Test func mergeIsDoneOnlyWhenAllSourcesWereDone() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "one"))
-        let b = try #require(store.add(text: "two"))
+        let a = try #require(store.add(text: "one").item)
+        let b = try #require(store.add(text: "two").item)
 
         store.setDone(ids: [a.id], done: true)
         #expect(try #require(store.merge(ids: [a.id, b.id])).done == false)
@@ -70,7 +100,7 @@ struct ListStoreTests {
 
     @Test func mergeRequiresTwoExistingItems() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "alone"))
+        let a = try #require(store.add(text: "alone").item)
         #expect(store.merge(ids: [a.id]) == nil)
         #expect(store.merge(ids: [a.id, UUID()]) == nil)
         #expect(store.items.count == 1)
@@ -78,9 +108,9 @@ struct ListStoreTests {
 
     @Test func undoAfterMergeRestoresOriginalsExactly() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "keep me"))
-        let b = try #require(store.add(text: "absorb me"))
-        let c = try #require(store.add(text: "bystander"))
+        let a = try #require(store.add(text: "keep me").item)
+        let b = try #require(store.add(text: "absorb me").item)
+        let c = try #require(store.add(text: "bystander").item)
         store.setDone(ids: [b.id], done: true)
         let before = store.document
 
@@ -94,9 +124,9 @@ struct ListStoreTests {
 
     @Test func undoOrderStaysLIFOAcrossMergeAndDelete() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a"))
-        let b = try #require(store.add(text: "b"))
-        let c = try #require(store.add(text: "c"))
+        let a = try #require(store.add(text: "a").item)
+        let b = try #require(store.add(text: "b").item)
+        let c = try #require(store.add(text: "c").item)
         let before = store.document
 
         _ = try #require(store.merge(ids: [a.id, b.id]))
@@ -109,8 +139,8 @@ struct ListStoreTests {
 
     @Test func redoReappliesDeleteExactly() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "stays"))
-        let b = try #require(store.add(text: "goes"))
+        let a = try #require(store.add(text: "stays").item)
+        let b = try #require(store.add(text: "goes").item)
 
         store.delete(ids: [b.id])
         let afterDelete = store.document
@@ -125,8 +155,8 @@ struct ListStoreTests {
 
     @Test func redoReappliesMergeProductExactly() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "one"))
-        let b = try #require(store.add(text: "two"))
+        let a = try #require(store.add(text: "one").item)
+        let b = try #require(store.add(text: "two").item)
 
         let merged = try #require(store.merge(ids: [a.id, b.id]))
         let afterMerge = store.document
@@ -141,8 +171,8 @@ struct ListStoreTests {
     @Test func undoRedoUndoRoundTrips() throws {
         // Redo lands back on the undo stack, so Cmd-Z reverses it again.
         let store = ListStore()
-        _ = try #require(store.add(text: "keeper"))
-        let victim = try #require(store.add(text: "victim"))
+        _ = try #require(store.add(text: "keeper").item)
+        let victim = try #require(store.add(text: "victim").item)
         let before = store.document
 
         store.delete(ids: [victim.id])
@@ -155,9 +185,9 @@ struct ListStoreTests {
 
     @Test func redoOrderIsLIFOAcrossMergeAndDelete() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a"))
-        let b = try #require(store.add(text: "b"))
-        let c = try #require(store.add(text: "c"))
+        let a = try #require(store.add(text: "a").item)
+        let b = try #require(store.add(text: "b").item)
+        let c = try #require(store.add(text: "c").item)
 
         _ = try #require(store.merge(ids: [a.id, b.id]))
         store.delete(ids: [c.id])
@@ -174,7 +204,7 @@ struct ListStoreTests {
 
     @Test func freshMutationClearsRedo() throws {
         let store = ListStore()
-        let victim = try #require(store.add(text: "victim"))
+        let victim = try #require(store.add(text: "victim").item)
         store.delete(ids: [victim.id])
         _ = store.undoDelete()
 
@@ -186,8 +216,8 @@ struct ListStoreTests {
 
     @Test func toggleDoneClearsRedo() throws {
         let store = ListStore()
-        let keeper = try #require(store.add(text: "keeper"))
-        let victim = try #require(store.add(text: "victim"))
+        let keeper = try #require(store.add(text: "keeper").item)
+        let victim = try #require(store.add(text: "victim").item)
         store.delete(ids: [victim.id])
         _ = store.undoDelete()
 
@@ -203,7 +233,7 @@ struct ListStoreTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        let victim = try #require(store.add(text: "victim"))
+        let victim = try #require(store.add(text: "victim").item)
         store.delete(ids: [victim.id])
         _ = store.undoDelete()
 
@@ -220,8 +250,8 @@ struct ListStoreTests {
         // Without the clear, redoing the stale batch would no-op its
         // removal and a later undo would duplicate the note.
         let store = ListStore()
-        let a = try #require(store.add(text: "a"))
-        let b = try #require(store.add(text: "b"))
+        let a = try #require(store.add(text: "a").item)
+        let b = try #require(store.add(text: "b").item)
         store.delete(ids: [a.id])
         _ = store.undoDelete()
 
@@ -232,8 +262,8 @@ struct ListStoreTests {
 
     @Test func updateTextClearsRedo() throws {
         let store = ListStore()
-        let keeper = try #require(store.add(text: "keeper"))
-        let victim = try #require(store.add(text: "victim"))
+        let keeper = try #require(store.add(text: "keeper").item)
+        let victim = try #require(store.add(text: "victim").item)
         store.delete(ids: [victim.id])
         _ = store.undoDelete()
 
@@ -245,8 +275,8 @@ struct ListStoreTests {
     @Test func unchangedEditKeepsRedo() throws {
         // Committing an editor without changes is not a mutation.
         let store = ListStore()
-        let keeper = try #require(store.add(text: "keeper"))
-        let victim = try #require(store.add(text: "victim"))
+        let keeper = try #require(store.add(text: "keeper").item)
+        let victim = try #require(store.add(text: "victim").item)
         store.delete(ids: [victim.id])
         _ = store.undoDelete()
 
@@ -257,9 +287,9 @@ struct ListStoreTests {
 
     @Test func mergeClearsRedo() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a"))
-        let b = try #require(store.add(text: "b"))
-        let victim = try #require(store.add(text: "victim"))
+        let a = try #require(store.add(text: "a").item)
+        let b = try #require(store.add(text: "b").item)
+        let victim = try #require(store.add(text: "victim").item)
         store.delete(ids: [victim.id])
         _ = store.undoDelete()
 
@@ -272,8 +302,8 @@ struct ListStoreTests {
         // Redo re-appends to the top of the undo stack; a later Cmd-Z must
         // reverse the redo, not an older delete.
         let store = ListStore()
-        let a = try #require(store.add(text: "a"))
-        let b = try #require(store.add(text: "b"))
+        let a = try #require(store.add(text: "a").item)
+        let b = try #require(store.add(text: "b").item)
         let before = store.document
 
         store.delete(ids: [a.id])
@@ -346,14 +376,14 @@ struct ListStoreTests {
 
     @Test func updatingToEmptyTextDeletes() throws {
         let store = ListStore()
-        let item = try #require(store.add(text: "about to vanish"))
+        let item = try #require(store.add(text: "about to vanish").item)
         store.updateText(id: item.id, text: "   ")
         #expect(store.items.isEmpty)
     }
 
     @Test func updateTextRenamesPreservingIdentity() throws {
         let store = ListStore()
-        let item = try #require(store.add(text: "original"))
+        let item = try #require(store.add(text: "original").item)
         store.updateText(id: item.id, text: "  renamed\u{2028}second  ")
 
         let updated = try #require(store.items.first)
@@ -368,7 +398,7 @@ struct ListStoreTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let store = ListStore.loadFrom(storage: FileStorage(fileURL: url, debounceInterval: 0.05))
-        store.add(text: "survives")
+        _ = store.add(text: "survives")
         store.flush()
 
         let reloaded = FileStorage(fileURL: url).load().document
@@ -382,7 +412,7 @@ struct ListStoreTests {
 
         let storage = FileStorage(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        store.add(text: "original")
+        _ = store.add(text: "original")
         store.flush()
 
         try Data("- [ ] edited outside\n".utf8).write(to: url, options: .atomic)
@@ -396,8 +426,8 @@ struct ListStoreTests {
 
     @Test func sectionMatchingIsCaseAndDiacriticInsensitive() {
         let store = ListStore()
-        store.add(text: "Café notes")
-        store.add(text: "unrelated")
+        _ = store.add(text: "Café notes")
+        _ = store.add(text: "unrelated")
 
         #expect(store.sections(matching: "cafe").flatMap(\.items).count == 1)
         #expect(store.sections(matching: "CAFÉ").flatMap(\.items).count == 1)
@@ -460,15 +490,15 @@ struct ListStoreTests {
 
     @Test func addedItemJoinsLastSection() {
         let store = ListStore(document: MarkdownDocument.parse("## First\n- [ ] a\n## Last\n- [ ] b\n"))
-        store.add(text: "new note")
+        _ = store.add(text: "new note")
         #expect(store.sections(matching: "").last?.items.map(\.text) == ["b", "new note"])
     }
 
     @Test func batchDeleteRemovesAllAndIgnoresUnknownIDs() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a"))
-        let b = try #require(store.add(text: "b"))
-        let c = try #require(store.add(text: "c"))
+        let a = try #require(store.add(text: "a").item)
+        let b = try #require(store.add(text: "b").item)
+        let c = try #require(store.add(text: "c").item)
 
         store.delete(ids: [a.id, c.id, UUID()])
         #expect(store.items.map(\.id) == [b.id])
@@ -479,8 +509,8 @@ struct ListStoreTests {
 
     @Test func setDoneConvergesMixedSelection() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a"))
-        let b = try #require(store.add(text: "b"))
+        let a = try #require(store.add(text: "a").item)
+        let b = try #require(store.add(text: "b").item)
         store.toggleDone(ids: [a.id])
 
         store.setDone(ids: [a.id, b.id], done: true)
@@ -492,8 +522,8 @@ struct ListStoreTests {
 
     @Test func toggleDoneIDsConvergesThenFlips() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a"))
-        let b = try #require(store.add(text: "b"))
+        let a = try #require(store.add(text: "a").item)
+        let b = try #require(store.add(text: "b").item)
         store.toggleDone(ids: [a.id])
         #expect(store.allDone(ids: [a.id, b.id]) == false)
 
@@ -528,10 +558,10 @@ struct ListStoreTests {
 
     @Test func undoRestoresBatchAtOriginalPositions() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a"))
-        store.add(text: "b")
-        let c = try #require(store.add(text: "c"))
-        store.add(text: "d")
+        let a = try #require(store.add(text: "a").item)
+        _ = store.add(text: "b")
+        let c = try #require(store.add(text: "c").item)
+        _ = store.add(text: "d")
 
         store.delete(ids: [a.id, c.id])
         #expect(store.items.map(\.text) == ["b", "d"])
@@ -562,8 +592,8 @@ struct ListStoreTests {
 
     @Test func repeatedUndoWalksBackThroughDeletes() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a"))
-        let b = try #require(store.add(text: "b"))
+        let a = try #require(store.add(text: "a").item)
+        let b = try #require(store.add(text: "b").item)
 
         store.delete(ids: [a.id])
         store.delete(ids: [b.id])
@@ -577,7 +607,7 @@ struct ListStoreTests {
 
     @Test func undoWithNoHistoryReturnsEmpty() {
         let store = ListStore()
-        store.add(text: "untouched")
+        _ = store.add(text: "untouched")
         // A delete matching nothing must not consume an undo slot.
         store.delete(ids: [UUID()])
         #expect(store.undoDelete().isEmpty)
@@ -587,7 +617,7 @@ struct ListStoreTests {
     @Test func undoHistoryIsCapped() throws {
         let store = ListStore()
         for index in 1 ... 12 {
-            let item = try #require(store.add(text: "note \(index)"))
+            let item = try #require(store.add(text: "note \(index)").item)
             store.delete(ids: [item.id])
         }
 
@@ -601,7 +631,7 @@ struct ListStoreTests {
 
     @Test func updateTextToEmptyIsUndoable() throws {
         let store = ListStore()
-        let item = try #require(store.add(text: "oops"))
+        let item = try #require(store.add(text: "oops").item)
         store.updateText(id: item.id, text: "   ")
         #expect(store.items.isEmpty)
 
@@ -615,7 +645,7 @@ struct ListStoreTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let store = ListStore.loadFrom(storage: FileStorage(fileURL: url))
-        let item = try #require(store.add(text: "keep me"))
+        let item = try #require(store.add(text: "keep me").item)
         store.delete(ids: [item.id])
         _ = store.undoDelete()
         store.flush()
@@ -630,7 +660,7 @@ struct ListStoreTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        let item = try #require(store.add(text: "deleted in app"))
+        let item = try #require(store.add(text: "deleted in app").item)
         store.delete(ids: [item.id])
 
         store.applyExternalChange(
@@ -647,8 +677,8 @@ struct ListStoreTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let store = ListStore.loadFrom(storage: FileStorage(fileURL: url))
-        store.add(text: "a")
-        let b = try #require(store.add(text: "b"))
+        _ = store.add(text: "a")
+        let b = try #require(store.add(text: "b").item)
         store.flush()
 
         store.delete(ids: [b.id])
@@ -669,9 +699,9 @@ struct ListStoreTests {
 
         let storage = FileStorage(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        let a = try #require(store.add(text: "a"))
-        let b = try #require(store.add(text: "b"))
-        let c = try #require(store.add(text: "c"))
+        let a = try #require(store.add(text: "a").item)
+        let b = try #require(store.add(text: "b").item)
+        let c = try #require(store.add(text: "c").item)
 
         store.setDone(ids: [a.id, b.id], done: true)
         store.delete(ids: [c.id])
@@ -738,7 +768,7 @@ struct ListStoreTests {
         #expect(store.items.map(\.text) == ["repaired by hand"])
 
         // And saving works again, on the generation the reload handed back.
-        store.add(text: "typed after recovery")
+        _ = store.add(text: "typed after recovery")
         store.flush()
         #expect(FileStorage(fileURL: url).load().document.items.map(\.text)
             == ["repaired by hand", "typed after recovery"])
@@ -760,12 +790,15 @@ struct ListStoreTests {
 
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        #expect(storage.health == .unreadable)
+        #expect(storage.health == .unreadable(cause: .notUTF8))
 
         try Data("- [ ] repaired\n".utf8).write(to: url, options: .atomic)
         store.reloadIfPlaceholder()
         #expect(!store.documentIsPlaceholder)
         #expect(storage.health == .ok)
+        // And synchronously on the mirror, or the panel this reload was run
+        // for keeps the banner the reload has now cleared.
+        #expect(store.health == .ok)
     }
 
     /// The worst clobber available: a placeholder holds nothing, so writing it
@@ -809,7 +842,7 @@ struct ListStoreTests {
 
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        store.add(text: "real note")
+        _ = store.add(text: "real note")
         store.flush()
         // The app's own bytes. A permission repair restores exactly these —
         // the content never changed, only the ability to read it — so the
@@ -819,16 +852,16 @@ struct ListStoreTests {
         // Unwatched throughout: the app only ever learns about the file by
         // looking at it, which is what the retry is for.
         try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
-        store.add(text: "typed after the break")
+        _ = store.add(text: "typed after the break")
         store.flush()
-        #expect(storage.health == .unreadable)
+        #expect(storage.health == .unreadable(cause: .notUTF8))
         #expect(!store.documentIsPlaceholder, "a runtime break must not raise the placeholder flag")
-        #expect(store.inputWouldBeDiscarded)
+        #expect(store.unavailability == .unreadable(cause: .notUTF8))
 
         try ourBytes.write(to: url, options: .atomic)
         store.retryUnavailableStorage()
 
-        #expect(!store.inputWouldBeDiscarded)
+        #expect(store.unavailability == nil)
         #expect(storage.health == .ok)
         // The note typed while saving was suspended has to survive the
         // recovery — re-reading the file instead would silently drop it.
@@ -836,7 +869,7 @@ struct ListStoreTests {
 
         // The capture the retry cleared the way for, and everything held in
         // memory behind it, reach disk together.
-        store.add(text: "captured after recovery")
+        _ = store.add(text: "captured after recovery")
         store.flush()
         #expect(FileStorage(fileURL: url).load().document.items.map(\.text)
             == ["real note", "typed after the break", "captured after recovery"])
@@ -857,7 +890,7 @@ struct ListStoreTests {
 
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        store.add(text: "real note")
+        _ = store.add(text: "real note")
         store.flush()
         #expect(storage.health == .ok)
 
@@ -865,12 +898,16 @@ struct ListStoreTests {
         // what a `chmod` leaves behind, which fires no watcher event.
         try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
         #expect(storage.health == .ok, "nothing has looked at the file yet")
-        #expect(!store.inputWouldBeDiscarded, "and so nothing knows to refuse")
+        #expect(store.unavailability == nil, "and so nothing knows to refuse")
 
         store.retryUnavailableStorage()
 
-        #expect(storage.health == .unreadable)
-        #expect(store.inputWouldBeDiscarded)
+        #expect(storage.health == .unreadable(cause: .notUTF8))
+        #expect(store.unavailability == .unreadable(cause: .notUTF8))
+        // Synchronously, with no queue drain: a summon retries and draws in
+        // one turn, so a mirror left to the storage's own notification would
+        // paint the panel with no banner over the break it has now found.
+        #expect(store.health == .unreadable(cause: .notUTF8))
     }
 
     /// Not every adoption is drained: a debounced save that finds foreign
@@ -878,6 +915,11 @@ struct ListStoreTests {
     /// until the delivery lands. Health is `.ok` and the file reads perfectly
     /// throughout, so the generation is the only thing that knows input
     /// accepted now would be replaced.
+    ///
+    /// The reason is the point, not merely the refusal: reporting "the notes
+    /// file can't be read" here would blame a file with nothing wrong with it
+    /// and send the user to re-check permissions when the window closes by
+    /// itself on the next turn.
     @Test func inputIsRefusedWhileAnAdoptionIsStillInFlight() throws {
         let url = FileManager.default.temporaryDirectory
             .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
@@ -885,7 +927,7 @@ struct ListStoreTests {
 
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        store.add(text: "real note")
+        _ = store.add(text: "real note")
         store.flush()
 
         // Foreign content, adopted by the save itself rather than by a retry.
@@ -893,7 +935,13 @@ struct ListStoreTests {
         store.flush()
 
         #expect(storage.health == .ok)
-        #expect(store.inputWouldBeDiscarded)
+        #expect(store.unavailability == .adoptionInFlight)
+
+        // And the refusal a surface would show says so, rather than blaming a
+        // file that reads perfectly.
+        #expect(store.add(text: "typed into the window") == .refused(.adoptionInFlight))
+        #expect(CaptureFeedback.notesUnavailable(.adoptionInFlight).message
+            == "Your notes just changed on disk — capture again")
     }
 
     /// The capture that triggers an adoption used to be refused and told the
@@ -907,7 +955,7 @@ struct ListStoreTests {
 
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        store.add(text: "a note")
+        _ = store.add(text: "a note")
         store.flush()
 
         try Data("- [ ] edited outside\n".utf8).write(to: url, options: .atomic)
@@ -916,10 +964,10 @@ struct ListStoreTests {
         store.retryUnavailableStorage()
 
         #expect(storage.health == .ok)
-        #expect(!store.inputWouldBeDiscarded, "the file reads fine; refusing here blames the wrong thing")
+        #expect(store.unavailability == nil, "the file reads fine; refusing here blames the wrong thing")
         #expect(store.items.map(\.text) == ["edited outside"])
 
-        store.add(text: "captured after the adoption")
+        _ = store.add(text: "captured after the adoption")
         store.flush()
         #expect(FileStorage(fileURL: url).load().document.items.map(\.text)
             == ["edited outside", "captured after the adoption"])
@@ -934,7 +982,7 @@ struct ListStoreTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let store = ListStore.loadFrom(storage: FileStorage.unwatched(fileURL: url))
-        store.add(text: "a note")
+        _ = store.add(text: "a note")
 
         #expect(store.flush() == false)
         // The absence of a warning is not evidence of a save; without this the
@@ -955,14 +1003,14 @@ struct ListStoreTests {
 
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        store.add(text: "a note")
+        _ = store.add(text: "a note")
         store.flush()
 
         try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
-        store.add(text: "typed after the break")
+        _ = store.add(text: "typed after the break")
 
         #expect(store.flush() == true)
-        #expect(storage.health == .unreadable)
+        #expect(storage.health == .unreadable(cause: .notUTF8))
     }
 
     /// The flush itself is what resolves the suspension here, so a warning read
@@ -980,14 +1028,14 @@ struct ListStoreTests {
 
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        store.add(text: "a note")
+        _ = store.add(text: "a note")
         store.flush()
         let ourBytes = try Data(contentsOf: url)
 
         try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
-        store.add(text: "typed after the break")
+        _ = store.add(text: "typed after the break")
         store.flush()
-        #expect(storage.health == .unreadable)
+        #expect(storage.health == .unreadable(cause: .notUTF8))
 
         try ourBytes.write(to: url, options: .atomic)
 
@@ -1010,7 +1058,7 @@ struct ListStoreTests {
 
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        store.add(text: "a note")
+        _ = store.add(text: "a note")
         #expect(store.flush() == false)
 
         // Foreign content, with storage healthy and level going in: the save
@@ -1022,7 +1070,7 @@ struct ListStoreTests {
     }
 
     /// A write that fails is loss at quit even though it may be transient —
-    /// `inputWouldBeDiscarded` excludes `.saveFailed` because a later debounce
+    /// `unavailability` excludes `.saveFailed` because a later debounce
     /// may land, and at quit there is no later debounce. Nothing else pins that
     /// divergence, so unifying the two predicates would pass silently.
     @Test func aFlushThatCannotWriteReportsLoss() throws {
@@ -1037,11 +1085,14 @@ struct ListStoreTests {
 
         let storage = FileStorage.unwatched(fileURL: blocker.appending(path: "notes.md"))
         let store = ListStore.loadFrom(storage: storage)
-        store.add(text: "a note")
+        _ = store.add(text: "a note")
 
         #expect(store.flush() == true)
         #expect(storage.health != .ok)
-        #expect(storage.health != .unreadable)
+        // Not merely "not this one cause": the point is that a write failure
+        // is not a suspension at all. Comparing against a single case would
+        // now pass for any other one.
+        #expect(storage.health.unreadableCause == nil)
     }
 
     /// A reload takes what is on disk and moves the store forward, but a
@@ -1064,7 +1115,7 @@ struct ListStoreTests {
         let reload = storage.load().generation
 
         store.applyExternalChange(MarkdownDocument.parse("- [ ] from disk\n"), generation: reload)
-        store.add(text: "typed after the reload")
+        _ = store.add(text: "typed after the reload")
 
         store.applyExternalChange(MarkdownDocument.parse("- [ ] from disk\n"), generation: inFlight)
 
@@ -1109,7 +1160,7 @@ struct ListStoreTests {
         // flight. Main is held by this test body until the await below.
         store.flush()
         store.reloadIfPlaceholder()
-        store.add(text: "captured in the window")
+        _ = store.add(text: "captured in the window")
 
         await waitForPendingDeliveries(of: storage)
         #expect(store.items.map(\.text) == ["repaired by hand", "captured in the window"])
@@ -1144,20 +1195,20 @@ struct ListStoreTests {
 
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        store.add(text: "a real note")
+        _ = store.add(text: "a real note")
         store.flush()
 
         // Behind: the save adopted foreign content and the delivery has not
         // arrived, so nothing has rebased this store.
         try Data("- [ ] rewritten by hand\n".utf8).write(to: url, options: .atomic)
         store.flush()
-        #expect(store.inputWouldBeDiscarded)
+        #expect(store.unavailability == .adoptionInFlight)
 
         // And now the file breaks, before the retry runs.
         try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
         store.retryUnavailableStorage()
 
-        #expect(storage.health == .unreadable)
+        #expect(storage.health == .unreadable(cause: .notUTF8))
         #expect(!store.documentIsPlaceholder, "a real document must not be relabelled a placeholder")
         #expect(store.items.map(\.text) == ["a real note"])
     }
@@ -1174,26 +1225,26 @@ struct ListStoreTests {
 
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        store.add(text: "a real note")
+        _ = store.add(text: "a real note")
         store.flush()
 
         try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
-        store.add(text: "typed after the break")
+        _ = store.add(text: "typed after the break")
         store.flush()
-        #expect(storage.health == .unreadable)
+        #expect(storage.health == .unreadable(cause: .notUTF8))
 
         try Data("- [ ] rewritten by hand\n".utf8).write(to: url, options: .atomic)
         store.retryUnavailableStorage()
 
         #expect(storage.health == .ok)
-        #expect(!store.inputWouldBeDiscarded)
+        #expect(store.unavailability == nil)
         #expect(store.items.map(\.text) == ["rewritten by hand"])
     }
 
     /// An unlink landing while the store is behind must not empty it. A
     /// second read would report the absent file as an empty document — not a
     /// placeholder — and applying that trades the user's notes for the gap,
-    /// with `inputWouldBeDiscarded` then saying input is safe.
+    /// with `unavailability` then saying input is safe.
     @Test func aRetryDoesNotEmptyTheStoreWhenTheFileIsGone() throws {
         let url = FileManager.default.temporaryDirectory
             .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
@@ -1201,13 +1252,13 @@ struct ListStoreTests {
 
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        store.add(text: "a real note")
+        _ = store.add(text: "a real note")
         store.flush()
 
         // Behind: adopted by the save, delivery not yet arrived.
         try Data("- [ ] rewritten by hand\n".utf8).write(to: url, options: .atomic)
         store.flush()
-        #expect(store.inputWouldBeDiscarded)
+        #expect(store.unavailability == .adoptionInFlight)
 
         try FileManager.default.removeItem(at: url)
         store.retryUnavailableStorage()
@@ -1225,7 +1276,7 @@ struct ListStoreTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let store = ListStore.loadFrom(storage: FileStorage.unwatched(fileURL: url))
-        let item = try #require(store.add(text: "deletable"))
+        let item = try #require(store.add(text: "deletable").item)
         store.delete(ids: [item.id])
 
         store.reloadIfPlaceholder()
@@ -1273,7 +1324,7 @@ struct ListStoreTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let store = ListStore.loadFrom(storage: FileStorage(fileURL: url, debounceInterval: 0.05))
-        store.add(text: "original")
+        _ = store.add(text: "original")
         store.flush()
 
         try Data("- [ ] edited outside\n".utf8).write(to: url, options: .atomic)
@@ -1284,13 +1335,13 @@ struct ListStoreTests {
         #expect(store.items.map(\.text) == ["edited outside"])
 
         // The debounced path every user edit takes.
-        store.add(text: "typed after reload")
+        _ = store.add(text: "typed after reload")
         try await Task.sleep(for: .milliseconds(300))
         #expect(FileStorage(fileURL: url).load().document.items.map(\.text)
             == ["edited outside", "typed after reload"])
 
         // And the quit flush.
-        store.add(text: "typed before quit")
+        _ = store.add(text: "typed before quit")
         store.flush()
         #expect(FileStorage(fileURL: url).load().document.items.map(\.text)
             == ["edited outside", "typed after reload", "typed before quit"])
@@ -1317,7 +1368,7 @@ struct ListStoreTests {
 
         let store = ListStore.loadFrom(storage: storage)
         #expect(store.items.map(\.text) == ["outside edit"])
-        store.add(text: "typed after rebuild")
+        _ = store.add(text: "typed after rebuild")
         store.flush()
         #expect(FileStorage(fileURL: url).load().document.items.map(\.text)
             == ["outside edit", "typed after rebuild"])

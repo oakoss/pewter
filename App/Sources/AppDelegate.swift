@@ -5,7 +5,6 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var store: ListStore?
-    private var storage: FileStorage?
     private var panelController: PanelController?
     private var statusItemController: StatusItemController?
     private var permission: AccessibilityPermission?
@@ -20,9 +19,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let uiState = PanelUIState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Kept alive by the store, which holds it strongly; the reveal command
+        // below captures it for its URL.
         let storage = FileStorage(fileURL: FileStorage.defaultURL())
         let store = ListStore.loadFrom(storage: storage)
-        self.storage = storage
         self.store = store
 
         let permission = AccessibilityPermission()
@@ -150,16 +150,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             panelController?.hide()
         }
 
-        storage.setOnHealthChange { [weak self] health in
-            // DispatchQueue.main is FIFO; unstructured Tasks are not, and
-            // health values applied out of order would render a stale banner.
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    self?.applyStorageHealth(health)
-                }
-            }
-        }
-
         permission.onGranted = { [weak self] in
             self?.hotKeyCoordinator?.syncTriggers()
             self?.uiState.showsPermissionBanner = false
@@ -180,18 +170,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard !failed.isEmpty else { return }
         panelController?.show(relativeTo: statusItemController?.button)
         for slot in HotKeySlot.allCases where failed.contains(slot) {
-            uiState.showToast(slot.armingFailureMessage)
-        }
-    }
-
-    private func applyStorageHealth(_ health: FileStorage.Health) {
-        uiState.storageError = switch health {
-        case .ok:
-            nil
-        case let .saveFailed(reason):
-            "Couldn't save your notes — \(reason)"
-        case .unreadable:
-            "Notes file can't be read — saving is off to protect it"
+            // A warning, not a refusal: a trigger that wouldn't arm costs the
+            // user a shortcut, not anything they had typed.
+            uiState.showToast(slot.armingFailureMessage, severity: .warning)
         }
     }
 
@@ -213,18 +194,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Flash description and toast state the same clipboard outcome —
             // a VoiceOver user on the status-item path and a sighted user
             // watching the panel must not hear different stories.
-            let (symbol, message, duration): (String, String, TimeInterval) = switch outcome {
+            let (symbol, message, duration, severity): (String, String, TimeInterval, ToastSeverity) = switch outcome {
             case .copied:
-                ("doc.on.clipboard", "Diagnostics copied", 0.8)
+                ("doc.on.clipboard", "Diagnostics copied", 0.8, .confirmation)
             case .errorCopied:
-                ("exclamationmark.circle", "Couldn't read logs — error copied", 2)
+                ("exclamationmark.circle", "Couldn't read logs — error copied", 2, .warning)
             case .failed:
-                ("exclamationmark.circle", "Couldn't copy diagnostics", 2)
+                ("exclamationmark.circle", "Couldn't copy diagnostics", 2, .warning)
             }
             statusItemController?.flash(symbolName: symbol, description: message, duration: duration)
             if panelController?.isVisible == true {
                 // The flash already announced this exact message.
-                uiState.showToast(message, announces: false)
+                uiState.showToast(message, severity: severity, announces: false)
             }
         }
     }
@@ -247,8 +228,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showCaptureFeedback(.nothingSelected, anchor: anchor)
         case .captureFailed:
             showCaptureFeedback(.captureFailed, anchor: nil)
-        case .notesUnavailable:
-            showCaptureFeedback(.notesUnavailable, anchor: nil)
+        case let .notesUnavailable(reason):
+            showCaptureFeedback(.notesUnavailable(reason), anchor: nil)
         case .notPermitted:
             onboarding?.showIfNeeded()
         }

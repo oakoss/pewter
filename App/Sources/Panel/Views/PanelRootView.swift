@@ -53,7 +53,7 @@ struct PanelRootView: View {
         // below derive from it.
         let sections = visibleSections
         VStack(spacing: 0) {
-            if let storageError = uiState.storageError {
+            if let storageError = store.storageBanner {
                 errorBanner(storageError)
             }
             if uiState.showsPermissionBanner {
@@ -67,13 +67,7 @@ struct PanelRootView: View {
         }
         .overlay(alignment: .bottom) {
             if let toast = uiState.toast {
-                Text(toast)
-                    .font(.callout)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(.regularMaterial, in: Capsule())
-                    .padding(.bottom, 48)
-                    .transition(.opacity)
+                toastCapsule(toast)
             }
         }
         .animation(.easeInOut(duration: 0.15), value: uiState.toast)
@@ -405,6 +399,37 @@ struct PanelRootView: View {
             .accessibilityAddTraits(.isHeader)
     }
 
+    /// Two materials as close together as `.regularMaterial` on the panel's
+    /// `.ultraThinMaterial` barely separate, leaving the toast reading as
+    /// floating text; the thicker fill, the edge and the shadow are what make
+    /// it a surface. Severity rides the leading symbol rather than the fill —
+    /// the banner above owns persistent red for "saving is off", and a red
+    /// toast would compete with it while meaning something transient.
+    private func toastCapsule(_ toast: PanelUIState.Toast) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: toast.severity.symbolName)
+                .foregroundStyle(toast.severity.tint)
+                // Decorative, same as the empty state's: it restates the
+                // severity the message already carries, and left visible it
+                // becomes a stop announcing "warning" and nothing else.
+                .accessibilityHidden(true)
+            Text(toast.message)
+                .font(.callout)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(.thickMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.separator))
+        .shadow(color: .black.opacity(0.28), radius: 8, y: 2)
+        .padding(.bottom, 48)
+        .transition(.opacity)
+        // The symbol duplicates what the message says; combining reads them
+        // as one outcome instead of stopping on an unlabelled "warning".
+        .accessibilityElement(children: .combine)
+    }
+
+    /// The button is the difference between naming a repair and asking the
+    /// user to go find a file they have never been told the location of.
     private func errorBanner(_ message: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -412,6 +437,12 @@ struct PanelRootView: View {
             Text(message)
                 .font(.callout)
             Spacer()
+            Button("Reveal") {
+                commands.revealNotesFile()
+            }
+            .controlSize(.small)
+            .pointingHandCursor()
+            .accessibilityLabel("Reveal notes file in Finder")
         }
         .padding(10)
         .background(.red.opacity(0.12))
@@ -483,26 +514,24 @@ struct PanelRootView: View {
                 // so Return can be pressed again without clicking back in.
                 defer { focus = .quickAdd }
                 store.retryUnavailableStorage()
-                // Refused, not accepted-then-discarded: the list on screen
-                // isn't the user's notes, so committing would throw the text
-                // away when the real ones arrive. The field stays enabled
-                // rather than disabled — a disabled field can't be focused, so
-                // VoiceOver could never reach the reason, and the draft
-                // survives to be committed once the file is readable again.
-                //
-                // Known-narrow: this misses the states where the document is
-                // real but the note still won't land — see pw-d0a.
-                guard !store.documentIsPlaceholder else {
-                    uiState.showToast("Can't save yet — your notes file can't be read")
-                    return
-                }
-                if let added = store.add(text: draft) {
+                // The banner is not enough on its own: for the first note
+                // after a runtime break it isn't up yet, and it never shows an
+                // in-flight adoption at all. The draft survives a refusal, for
+                // the same reason the field stays enabled rather than
+                // disabled — a disabled field can't be focused, so VoiceOver
+                // could never reach the reason.
+                switch store.add(text: draft) {
+                case let .added(added):
                     draft = ""
                     // Same rule as capture: a filter that hides the new
                     // note would make the add read as a failure.
                     uiState.query = ""
                     selection.select(added.id)
                     uiState.reveal(added.id)
+                case .emptyText:
+                    break
+                case let .refused(reason):
+                    uiState.showToast(reason.refusalMessage, severity: .refusal)
                 }
             }
     }
@@ -665,5 +694,19 @@ struct PanelRootView: View {
         store.updateText(id: id, text: text)
         editingID = nil
         focus = .list
+    }
+}
+
+/// Tint lives here rather than beside the symbol in Core, which has no
+/// SwiftUI dependency. Red is deliberately absent: the storage banner owns it
+/// for "saving is off", and a toast wearing the same colour would read as that
+/// same persistent problem.
+private extension ToastSeverity {
+    var tint: Color {
+        switch self {
+        case .confirmation: .secondary
+        case .warning: .yellow
+        case .refusal: .orange
+        }
     }
 }

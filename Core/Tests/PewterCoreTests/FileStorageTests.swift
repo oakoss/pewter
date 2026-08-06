@@ -209,7 +209,7 @@ struct FileStorageTests {
         let loaded = storage.load()
         let document = loaded.document
         #expect(document.items.isEmpty)
-        #expect(storage.health == .unreadable)
+        #expect(storage.health == .unreadable(cause: .notUTF8))
 
         var edited = MarkdownDocument()
         edited.append(Item(text: "must not land"))
@@ -231,7 +231,8 @@ struct FileStorageTests {
         document.append(Item(text: "original"))
         storage.saveNow(document, generation: .initial)
         let generation = storage.load().generation
-        #expect(storage.health != .unreadable)
+        // Not "not this one cause": the claim is that nothing is suspended.
+        #expect(storage.health.unreadableCause == nil)
 
         let changes = HealthBox()
         storage.setOnHealthChange { changes.append($0) }
@@ -244,12 +245,12 @@ struct FileStorageTests {
         try invalidBytes.write(to: url, options: .atomic)
 
         let deadline = ContinuousClock.now + .seconds(2)
-        while storage.health != .unreadable, ContinuousClock.now < deadline {
+        while storage.health != .unreadable(cause: .notUTF8), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(storage.health == .unreadable)
+        #expect(storage.health == .unreadable(cause: .notUTF8))
         // The banner depends on the callback, not the readable property.
-        try await waitUntilStorage { changes.all.last == .unreadable }
+        try await waitUntilStorage { changes.all.last == .unreadable(cause: .notUTF8) }
 
         // Past the debounce window: the pending save must not have landed —
         // the unreadable content the app never saw stays intact. The watcher
@@ -401,13 +402,13 @@ struct FileStorageTests {
         let external = Box()
         recordExternalChanges(on: storage, into: external)
         _ = storage.load()
-        #expect(storage.health == .unreadable)
+        #expect(storage.health == .unreadable(cause: .notUTF8))
 
         // The natural remedy for a corrupt file: delete it and start over.
         try FileManager.default.removeItem(at: url)
         try await waitUntilStorage { external.count == 1 }
         #expect(external.last?.items.isEmpty == true)
-        try await waitUntilStorage { changes.all == [.ok, .unreadable, .ok] }
+        try await waitUntilStorage { changes.all == [.ok, .unreadable(cause: .notUTF8), .ok] }
 
         // Saves must resume, not stay suspended forever.
         var document = MarkdownDocument()
@@ -434,12 +435,12 @@ struct FileStorageTests {
         // exists to race the wiring.
         let changes = HealthBox()
         storage.setOnHealthChange { changes.append($0) }
-        try await waitUntilStorage { changes.all == [.unreadable] }
+        try await waitUntilStorage { changes.all == [.unreadable(cause: .notUTF8)] }
         // Settle, then re-assert: "once" is part of the contract, and the
         // wait alone would miss a duplicate delivery arriving late.
         try await Task.sleep(for: .milliseconds(150))
-        #expect(changes.all == [.unreadable])
-        #expect(storage.health == .unreadable)
+        #expect(changes.all == [.unreadable(cause: .notUTF8)])
+        #expect(storage.health == .unreadable(cause: .notUTF8))
     }
 
     @Test func suspensionClearsWhenFileBecomesReadable() async throws {
@@ -458,17 +459,18 @@ struct FileStorageTests {
         let external = Box()
         recordExternalChanges(on: storage, into: external)
         _ = storage.load()
-        #expect(storage.health == .unreadable)
+        #expect(storage.health == .unreadable(cause: .notUTF8))
 
         // External repair: valid content replaces the unreadable bytes.
         try Data("- [ ] repaired\n".utf8).write(to: url, options: .atomic)
 
         let deadline = ContinuousClock.now + .seconds(2)
-        while storage.health == .unreadable, ContinuousClock.now < deadline {
+        while storage.health == .unreadable(cause: .notUTF8), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(storage.health != .unreadable)
-        try await waitUntilStorage { changes.all == [.ok, .unreadable, .ok] }
+        // Not "not this one cause": the claim is that nothing is suspended.
+        #expect(storage.health.unreadableCause == nil)
+        try await waitUntilStorage { changes.all == [.ok, .unreadable(cause: .notUTF8), .ok] }
         // Health resumes before the adoption is delivered, so waiting on
         // health alone would let the save race the delivery it must be
         // built on.
@@ -904,9 +906,9 @@ struct FileStorageTests {
         storage.saveNow(document, generation: .initial)
 
         #expect(try Data(contentsOf: url) == invalidBytes)
-        #expect(storage.health == .unreadable)
+        #expect(storage.health == .unreadable(cause: .notUTF8))
         // The banner depends on the callback, not the readable property.
-        try await waitUntilStorage { health.all.last == .unreadable }
+        try await waitUntilStorage { health.all.last == .unreadable(cause: .notUTF8) }
     }
 
     /// The suspension this entry point sets must not need the watcher to
@@ -926,7 +928,7 @@ struct FileStorageTests {
 
         try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
         storage.saveNow(document, generation: .initial)
-        #expect(storage.health == .unreadable)
+        #expect(storage.health == .unreadable(cause: .notUTF8))
 
         try Data("- [ ] repaired by hand\n".utf8).write(to: url, options: .atomic)
         storage.saveNow(document, generation: .initial)

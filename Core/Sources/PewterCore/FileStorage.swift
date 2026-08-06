@@ -11,8 +11,34 @@ public final class FileStorage: @unchecked Sendable {
         case ok
         case saveFailed(reason: String)
         /// The notes file exists but can't be read; saves are suspended so
-        /// the app can never overwrite content it hasn't seen.
-        case unreadable
+        /// the app can never overwrite content it hasn't seen. The cause
+        /// travels because the banner names the repair, and two causes are
+        /// two different problems — coalescing them would leave the banner
+        /// naming a repair that no longer applies.
+        case unreadable(cause: UnreadableCause)
+
+        /// Banner text, or nil when there is nothing to say. Lives here so
+        /// the copy is pinned by a test rather than assembled in a view: the
+        /// whole point of carrying the cause is that the string differs.
+        public var bannerMessage: String? {
+            switch self {
+            case .ok:
+                nil
+            case let .saveFailed(reason):
+                "Couldn't save your notes — \(reason)"
+            case .unreadable(.notPermitted):
+                "Pewter can't read your notes file — check its permissions. Saving is off to protect it"
+            case .unreadable(.notUTF8):
+                "Your notes file isn't UTF-8 — re-save it as UTF-8. Saving is off to protect it"
+            case .unreadable(.other):
+                "Notes file can't be read — saving is off to protect it"
+            }
+        }
+
+        var unreadableCause: UnreadableCause? {
+            guard case let .unreadable(cause) = self else { return nil }
+            return cause
+        }
     }
 
     /// Which document a save is built on. The storage hands one out with
@@ -152,7 +178,7 @@ public final class FileStorage: @unchecked Sendable {
         case .absent, .ours:
             resumeSavesIfSuspended()
             return .writable
-        case let .unreadable(reason):
+        case let .unreadable(cause):
             // Same protection as at load: never overwrite content the app
             // can't read, so can't have seen. Re-arm on the way out — landing
             // here at all is evidence the watcher missed the change that
@@ -160,14 +186,18 @@ public final class FileStorage: @unchecked Sendable {
             // Logged on the transition: unlike an adoption this neither bumps
             // the generation nor changes the hash, so every later save
             // re-enters and would repeat the line for as long as it lasts.
-            if currentHealth != .unreadable {
+            // Keyed on the cause, not merely on being unreadable — a file
+            // whose failure mode changes is a new problem, and throttling it
+            // away leaves the log naming the repair the user already made.
+            if currentHealth.unreadableCause != cause {
+                let reason = cause.logDescription
                 logger
                     .error(
                         "notes file is unreadable \(context, privacy: .public) (\(reason)); suspending saves to protect it"
                     )
             }
             rewatch()
-            setHealth(.unreadable)
+            setHealth(.unreadable(cause: cause))
             return .blocked
         case let .foreign(text, hash):
             resumeSavesIfSuspended()
@@ -183,6 +213,16 @@ public final class FileStorage: @unchecked Sendable {
         }
     }
 
+    /// What a refresh found: the health it reconciled to, and the content it
+    /// adopted if any.
+    struct Refresh {
+        let health: Health
+        /// Only a writable reconciliation adopts, so this is never paired with
+        /// `.unreadable` — the pairing is unproducible rather than unrepresentable,
+        /// which is the price of handing back both in one value.
+        let adopted: (document: MarkdownDocument, generation: DocumentGeneration)?
+    }
+
     /// Re-reads the file's state without writing, bringing health back in line
     /// with what is on disk.
     ///
@@ -190,23 +230,34 @@ public final class FileStorage: @unchecked Sendable {
     /// without a second read. Re-reading instead would race an unlink landing
     /// between the two: `load()` reports an absent file as an empty document,
     /// and applying that would trade the user's notes for the gap.
-    func refreshFromDisk() -> (document: MarkdownDocument, generation: DocumentGeneration)? {
+    ///
+    /// Health rides back for the same reason the document does: a caller
+    /// holding an asynchronously-fed mirror of it has not seen the change this
+    /// call just made, and the notification is queued *behind* the caller. A
+    /// capture reading its mirror in between would report success for a note
+    /// with nowhere to go.
+    func refreshFromDisk() -> Refresh {
         queue.sync {
-            guard case let .adopted(document, generation) = reconcileWithDisk(noticedAt: "on retry") else {
-                return nil
+            let reconciliation = reconcileWithDisk(noticedAt: "on retry")
+            guard case let .adopted(document, generation) = reconciliation else {
+                return Refresh(health: currentHealth, adopted: nil)
             }
-            return (document, generation)
+            return Refresh(health: currentHealth, adopted: (document, generation))
         }
     }
 
-    /// True when a document built on `generation` can still be saved.
+    /// Health, and whether a document built on `generation` can still be
+    /// saved. The second is not implied by the first: a store behind this
+    /// storage has an adopted document already in flight to it, and applying
+    /// that delivery replaces whatever the store is holding, while the file
+    /// itself reads perfectly and health says `.ok`.
     ///
-    /// A store behind this storage has an adopted document already in flight
-    /// to it, and applying that delivery replaces whatever the store is
-    /// holding. Health says nothing about this — the file can be perfectly
-    /// readable — so a surface that reports success needs to ask separately.
-    func accepts(_ generation: DocumentGeneration) -> Bool {
-        queue.sync { generation == currentGeneration }
+    /// Both in one hop, deliberately. Asked separately they leave a window
+    /// between the two answers, and an adoption landing in it is invisible to
+    /// a caller that has already read health — so the note it then accepts
+    /// goes into a document the delivery replaces.
+    func status(for generation: DocumentGeneration) -> (health: Health, accepts: Bool) {
+        queue.sync { (currentHealth, generation == currentGeneration) }
     }
 
     /// Sets the handler called with the freshly parsed document when the file
@@ -255,43 +306,65 @@ public final class FileStorage: @unchecked Sendable {
     /// reading the bytes and recording them and leave the newer hash and
     /// generation overwritten by this older snapshot.
     ///
-    /// `isPlaceholder` reports whether the returned document stands in for
-    /// notes that couldn't be read. It is decided inside the same hop that
-    /// reads the file: asking afterwards would race the watcher this call
-    /// arms, and a caller that saw a stale answer would treat an empty
-    /// placeholder as the user's real notes.
+    /// `health` is the state this load reconciled to, handed back for the same
+    /// reason `Refresh` does it: asking afterwards would race the watcher this
+    /// call arms, and its own notification is a hop behind the caller.
+    /// `health.unreadableCause` is why the returned document stands in for
+    /// notes that couldn't be read, and nil when it is the real thing — one
+    /// value, so a caller cannot end up with a placeholder and a health that
+    /// disagree about the same read. A `.saveFailed` from before survives a
+    /// readable load, which is why this is handed back rather than derived.
     ///
     /// The recorded digest is replaced unconditionally, so loading over an
     /// absent or unreadable file clears it rather than leaving one that names
     /// bytes no longer there.
-    func load() -> (document: MarkdownDocument, generation: DocumentGeneration, isPlaceholder: Bool) {
+    func load() -> (document: MarkdownDocument, generation: DocumentGeneration, health: Health) {
         queue.sync {
             var document = MarkdownDocument()
             var loadedHash: SHA256Digest?
-            var isUnreadable = false
+            var cause: UnreadableCause?
             if FileManager.default.fileExists(atPath: fileURL.path) {
-                if let data = try? Data(contentsOf: fileURL), let text = String(data: data, encoding: .utf8) {
+                // The failure is classified rather than discarded: this is the
+                // only place the difference between a permission problem and
+                // a mis-encoded file is known, and every surface downstream
+                // has to name which repair applies.
+                switch readText() {
+                case let .text(data, text):
                     loadedHash = SHA256.hash(data: data)
                     document = MarkdownDocument.parse(text)
-                } else {
-                    // The file exists but can't be read (permissions, non-UTF8).
-                    // Proceeding with an empty document and live saves would
-                    // overwrite the user's data — refuse to write instead.
-                    // Throttled like the save path's twin: a summon re-reads,
-                    // so an unrepaired file would otherwise log this on every
-                    // summon and bury the line that explains it.
-                    if currentHealth != .unreadable {
-                        logger.error("notes file exists but is unreadable; suspending saves to protect it")
+                case let .failed(readCause):
+                    // Re-checked, same as `inspectOnDisk`: the file can vanish
+                    // between the existence check above and the read, and
+                    // suspending saves over a file that is merely gone would
+                    // refuse every write to one the next save would recreate.
+                    if FileManager.default.fileExists(atPath: fileURL.path) {
+                        cause = readCause
+                    } else {
+                        // Said out loud, like the watcher's twin: the empty
+                        // document this returns is a deletion, not the user's
+                        // notes, and a silent discard here is the "where did
+                        // my notes go" report with nothing in the log.
+                        let reason = readCause.logDescription
+                        logger.warning("notes file vanished mid-load (\(reason)); treating it as removed")
                     }
-                    isUnreadable = true
                 }
             }
-            // Symmetric with the write path: a read that works, or a file
-            // that is gone, ends a suspension. Without it a reload that
-            // succeeds would leave the banner up over readable notes.
-            if isUnreadable {
-                setHealth(.unreadable)
+            if let cause {
+                // Proceeding with an empty document and live saves would
+                // overwrite the user's data — refuse to write instead.
+                // Throttled like the save path's twin: a summon re-reads, so
+                // an unrepaired file would otherwise log this on every summon
+                // and bury the line that explains it. Keyed on the cause so a
+                // file whose failure mode changes still reports the new one.
+                if currentHealth.unreadableCause != cause {
+                    let reason = cause.logDescription
+                    logger.error("notes file exists but is unreadable (\(reason)); suspending saves to protect it")
+                }
+                setHealth(.unreadable(cause: cause))
             } else {
+                // Symmetric with the write path: a read that works, or a file
+                // that is gone, ends a suspension. Without it a reload that
+                // succeeds would leave the banner up over readable notes.
                 resumeSavesIfSuspended()
             }
             lastKnownDiskHash = loadedHash
@@ -311,7 +384,7 @@ public final class FileStorage: @unchecked Sendable {
             // has already moved past. Handing back the generation as found
             // would make the two indistinguishable and let the late one win.
             currentGeneration = currentGeneration.next
-            return (document, currentGeneration, isUnreadable)
+            return (document, currentGeneration, currentHealth)
         }
     }
 
@@ -393,10 +466,11 @@ public final class FileStorage: @unchecked Sendable {
         case absent
         /// The bytes the storage last saw; overwriting them loses nothing.
         case ours
-        /// `reason` travels rather than being logged where it is found: the
+        /// The cause travels rather than being logged where it is found: the
         /// remedy differs per cause (fix permissions vs re-save as UTF-8) and
-        /// the caller logs it once per suspension, not once per refused save.
-        case unreadable(reason: String)
+        /// the caller both logs it once per suspension, not once per refused
+        /// save, and hands it to `Health` for the banner to name.
+        case unreadable(cause: UnreadableCause)
         /// Content the storage has never seen, which includes the
         /// never-loaded case where it holds no belief about the file at all.
         case foreign(text: String, hash: SHA256Digest)
@@ -404,21 +478,17 @@ public final class FileStorage: @unchecked Sendable {
 
     private func inspectOnDisk() -> OnDiskState {
         dispatchPrecondition(condition: .onQueue(queue))
-        let data: Data
-        do {
-            data = try Data(contentsOf: fileURL)
-        } catch {
+        switch readText() {
+        case let .text(data, text):
+            let hash = SHA256.hash(data: data)
+            return hash == lastKnownDiskHash ? .ours : .foreign(text: text, hash: hash)
+        case let .failed(cause):
             // Absent covers both a fresh install and the file vanishing
             // between this read and any prior existence check; only a file
             // that is present and still unreadable suspends saves.
             guard FileManager.default.fileExists(atPath: fileURL.path) else { return .absent }
-            return .unreadable(reason: error.localizedDescription)
+            return .unreadable(cause: cause)
         }
-        guard let text = String(data: data, encoding: .utf8) else {
-            return .unreadable(reason: "not valid UTF-8")
-        }
-        let hash = SHA256.hash(data: data)
-        return hash == lastKnownDiskHash ? .ours : .foreign(text: text, hash: hash)
     }
 
     /// Takes what is on disk as the truth and hands it to the store — an
@@ -474,7 +544,7 @@ public final class FileStorage: @unchecked Sendable {
     /// `.unreadable` clears — a save failure stays until a save succeeds.
     private func resumeSavesIfSuspended() {
         dispatchPrecondition(condition: .onQueue(queue))
-        guard currentHealth == .unreadable else { return }
+        guard case .unreadable = currentHealth else { return }
         logger.notice("notes file no longer unreadable; saves resumed")
         setHealth(.ok)
     }
@@ -550,9 +620,13 @@ public final class FileStorage: @unchecked Sendable {
     }
 
     private func checkForExternalContent(retriesLeft: Int) {
-        guard let data = try? Data(contentsOf: fileURL),
-              let text = String(data: data, encoding: .utf8)
-        else {
+        switch readText() {
+        case let .text(data, text):
+            resumeSavesIfSuspended()
+            let hash = SHA256.hash(data: data)
+            guard hash != lastKnownDiskHash else { return }
+            adoptExternalContent(MarkdownDocument.parse(text), hash: hash)
+        case let .failed(cause):
             // An external editor's own atomic save can leave the file briefly
             // absent; retry once before giving up.
             if retriesLeft > 0 {
@@ -563,10 +637,14 @@ public final class FileStorage: @unchecked Sendable {
             } else if FileManager.default.fileExists(atPath: fileURL.path) {
                 // Present but unreadable: same protection as at load — never
                 // overwrite content the app hasn't seen.
-                logger.error("notes file changed externally but is unreadable; suspending saves to protect it")
+                let reason = cause.logDescription
+                logger
+                    .error(
+                        "notes file changed externally but is unreadable (\(reason)); suspending saves to protect it"
+                    )
                 pendingSave?.cancel()
                 pendingSave = nil
-                setHealth(.unreadable)
+                setHealth(.unreadable(cause: cause))
             } else {
                 // Deleted externally and confirmed absent after the retry.
                 // The store must not keep serving — and later re-saving —
@@ -581,14 +659,26 @@ public final class FileStorage: @unchecked Sendable {
                 // recreating the file the user deleted.
                 adoptExternalContent(MarkdownDocument(), hash: nil)
             }
-            return
         }
+    }
 
-        resumeSavesIfSuspended()
+    private enum FileRead {
+        case text(data: Data, text: String)
+        case failed(cause: UnreadableCause)
+    }
 
-        let hash = SHA256.hash(data: data)
-        guard hash != lastKnownDiskHash else { return }
-        adoptExternalContent(MarkdownDocument.parse(text), hash: hash)
+    /// Reads the file as UTF-8, or says why it couldn't. The three paths that
+    /// read the file — load, the pre-write inspection, and the watcher's
+    /// reaction — share it so their answers to "is this file readable, and if
+    /// not why" cannot drift apart.
+    private func readText() -> FileRead {
+        do {
+            let data = try Data(contentsOf: fileURL)
+            guard let text = String(data: data, encoding: .utf8) else { return .failed(cause: .notUTF8) }
+            return .text(data: data, text: text)
+        } catch {
+            return .failed(cause: UnreadableCause(readError: error))
+        }
     }
 
     /// Notifies only on an actual change, so routine successful saves

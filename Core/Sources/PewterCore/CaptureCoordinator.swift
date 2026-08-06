@@ -45,8 +45,10 @@ public final class CaptureCoordinator {
         case nothingSelected(anchor: CGRect?)
         case captureFailed
         case notPermitted
-        /// The capture succeeded but there is nowhere to store it.
-        case notesUnavailable
+        /// The capture succeeded but the text would not have reached disk.
+        /// The reason rides along because the remedies differ — repair the
+        /// file, or simply capture again.
+        case notesUnavailable(Unavailability)
     }
 
     public var onOutcome: ((Outcome) -> Void)?
@@ -243,21 +245,25 @@ public final class CaptureCoordinator {
         // told their notes are unreadable until they relaunch.
         store.retryUnavailableStorage()
         // The panel is closed during a capture, so the HUD is the only signal
-        // the user gets; `inputWouldBeDiscarded` is the broader test because a
-        // note added to a document whose file turned unreadable never reaches
-        // disk, and reporting "Captured" for that is the lie to avoid.
-        guard !store.inputWouldBeDiscarded else {
-            Self.logger.error("capture discarded: \(text.count) chars had nowhere to go — the notes file can't be read")
-            onOutcome?(.notesUnavailable)
-            return
-        }
-        if let item = store.add(text: text) {
+        // the user gets — a note added to a document whose file turned
+        // unreadable never reaches disk, and reporting "Captured" for that is
+        // the lie to avoid. The store decides and names the reason.
+        switch store.add(text: text) {
+        case let .added(item):
             lastCapture = (item.id, now())
             Self.logger.info("captured \(text.count) chars via \(tier, privacy: .public) tier")
             onOutcome?(.captured(item, anchor: anchor))
-        } else {
+        case .emptyText:
             Self.logger.info("capture ended: whitespace-only text via \(tier, privacy: .public) tier")
             onOutcome?(.nothingSelected(anchor: noTextAnchor))
+        case let .refused(reason):
+            // Default privacy, not `.public`: `.other` carries the system's
+            // description, which can name the notes file's path. Copy
+            // Diagnostics reads our own store, where this still renders
+            // verbatim and its home prefix is scrubbed on the way out.
+            let cause = reason.logDescription
+            Self.logger.error("capture discarded: \(text.count) chars had nowhere to go — \(cause)")
+            onOutcome?(.notesUnavailable(reason))
         }
     }
 
