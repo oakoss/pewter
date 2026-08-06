@@ -4,7 +4,7 @@ import Testing
 
 /// Resumes a continuation at most once: health is delivered on registration
 /// and again on every change, and a second resume traps.
-private final class ResumeOnce: @unchecked Sendable {
+final class ResumeOnce: @unchecked Sendable {
     private let lock = NSLock()
     private var done = false
 
@@ -21,7 +21,13 @@ private final class ResumeOnce: @unchecked Sendable {
 struct ListStoreTests {
     @Test func addTrimsAndRejectsEmpty() {
         let store = ListStore()
-        #expect(store.add(text: "  hello  ").item?.text == "hello")
+        // Matched rather than unwrapped via `.item`: this test is about `add`
+        // itself, and `.item` is for tests whose subject is what comes after.
+        guard case let .added(item) = store.add(text: "  hello  ") else {
+            Issue.record("expected the add to land")
+            return
+        }
+        #expect(item.text == "hello")
         #expect(store.add(text: "   \n ") == .emptyText)
         #expect(store.items.count == 1)
     }

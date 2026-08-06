@@ -409,6 +409,10 @@ struct PanelRootView: View {
         HStack(spacing: 6) {
             Image(systemName: toast.severity.symbolName)
                 .foregroundStyle(toast.severity.tint)
+                // Decorative, same as the empty state's: it restates the
+                // severity the message already carries, and left visible it
+                // becomes a stop announcing "warning" and nothing else.
+                .accessibilityHidden(true)
             Text(toast.message)
                 .font(.callout)
         }

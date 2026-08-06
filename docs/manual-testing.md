@@ -535,9 +535,9 @@ an AX answer delivers plain text that passes through untouched.
       one; the remedies differ (fix the file vs fix the selection), so
       hearing them as the same would send the user to debug the wrong thing
 - [ ] With VO running, edit the notes file outside the app and capture twice
-      quickly → a refused capture plays the fifth, adoption-in-flight sound,
-      distinct from the notes-unavailable one. By ear these are the only
-      thing separating "go and repair your file" from "press the key again"
+      quickly → a refused capture plays the adoption-in-flight sound, distinct
+      from the notes-unavailable one. By ear these are the only thing
+      separating "go and repair your file" from "press the key again"
 - [ ] With VO running and the notes file unreadable, VO-navigate the empty
       list → it announces "Notes unavailable". The symbol restates the
       message, so leaving it visible to VoiceOver makes it the stop and the

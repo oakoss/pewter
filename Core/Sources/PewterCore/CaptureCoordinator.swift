@@ -257,9 +257,12 @@ public final class CaptureCoordinator {
             Self.logger.info("capture ended: whitespace-only text via \(tier, privacy: .public) tier")
             onOutcome?(.nothingSelected(anchor: noTextAnchor))
         case let .refused(reason):
+            // Default privacy, not `.public`: `.other` carries the system's
+            // description, which can name the notes file's path. Copy
+            // Diagnostics reads our own store, where this still renders
+            // verbatim and its home prefix is scrubbed on the way out.
             let cause = reason.logDescription
-            Self.logger
-                .error("capture discarded: \(text.count) chars had nowhere to go — \(cause, privacy: .public)")
+            Self.logger.error("capture discarded: \(text.count) chars had nowhere to go — \(cause)")
             onOutcome?(.notesUnavailable(reason))
         }
     }

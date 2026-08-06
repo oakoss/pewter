@@ -346,7 +346,7 @@ public final class ListStore {
         // reporting a file problem for it names a remedy that would not have
         // helped.
         if let unavailability {
-            Self.logger.error("add refused: \(unavailability.logDescription, privacy: .public)")
+            Self.logger.error("add refused: \(unavailability.logDescription)")
             return .refused(unavailability)
         }
         let item = Item(text: trimmed)

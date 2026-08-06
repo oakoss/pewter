@@ -231,7 +231,8 @@ struct FileStorageTests {
         document.append(Item(text: "original"))
         storage.saveNow(document, generation: .initial)
         let generation = storage.load().generation
-        #expect(storage.health != .unreadable(cause: .notUTF8))
+        // Not "not this one cause": the claim is that nothing is suspended.
+        #expect(storage.health.unreadableCause == nil)
 
         let changes = HealthBox()
         storage.setOnHealthChange { changes.append($0) }
@@ -467,7 +468,8 @@ struct FileStorageTests {
         while storage.health == .unreadable(cause: .notUTF8), ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(20))
         }
-        #expect(storage.health != .unreadable(cause: .notUTF8))
+        // Not "not this one cause": the claim is that nothing is suspended.
+        #expect(storage.health.unreadableCause == nil)
         try await waitUntilStorage { changes.all == [.ok, .unreadable(cause: .notUTF8), .ok] }
         // Health resumes before the adoption is delivered, so waiting on
         // health alone would let the save race the delivery it must be

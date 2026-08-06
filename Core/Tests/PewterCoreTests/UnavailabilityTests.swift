@@ -186,14 +186,40 @@ struct UnreadableCauseTests {
         let url = directory.appending(path: "notes.md")
         try Data([0xFF, 0xFE, 0x00]).write(to: url)
 
-        let store = ListStore.loadFrom(storage: FileStorage.unwatched(fileURL: url))
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
         #expect(store.health == .unreadable(cause: .notUTF8))
 
-        // Let every queued delivery land. A registration ordered before the
-        // load would arrive here carrying `.ok`.
-        try await Task.sleep(for: .milliseconds(200))
+        // Drained deterministically, not waited out: the assertion is that
+        // the mirror does *not* change, and a negative can't be polled for —
+        // any clock-based wait either passes early for the wrong reason or
+        // spins to its deadline. Registering again queues a delivery behind
+        // the store's own on the storage's serial event queue, and both hop
+        // to main in order, so by the time this resumes anything that was
+        // going to clobber the mirror already has.
+        let once = ResumeOnce()
+        await withCheckedContinuation { continuation in
+            storage.setOnHealthChange { _ in
+                DispatchQueue.main.async { once.resume(continuation) }
+            }
+        }
         #expect(store.health == .unreadable(cause: .notUTF8), "a queued initial `.ok` must not outrank the load")
         #expect(store.health.bannerMessage != nil)
+    }
+
+    /// `Data(contentsOf:)` usually surfaces a `CocoaError`, which the `chmod`
+    /// test above covers. The `POSIXError` arm exists for the volumes that
+    /// report the raw errno instead, and nothing else would notice it being
+    /// dead — a bridging assumption is exactly the kind that rots silently.
+    @Test func aRawPosixDenialIsAlsoClassifiedAsAPermissionProblem() {
+        for code in [EACCES, EPERM] {
+            let error = NSError(domain: NSPOSIXErrorDomain, code: Int(code))
+            #expect(UnreadableCause(readError: error) == .notPermitted)
+        }
+        // A different errno must not be swept into the permission arm, or the
+        // banner names a repair for something unrelated.
+        let unrelated = NSError(domain: NSPOSIXErrorDomain, code: Int(EIO))
+        #expect(UnreadableCause(readError: unrelated) != .notPermitted)
     }
 
     @Test func anUnexpectedFailureKeepsItsDescriptionRatherThanGuessingARemedy() {
@@ -239,6 +265,20 @@ struct ToastSeverityTests {
         let symbols = ToastSeverity.allCases.map(\.symbolName)
         #expect(Set(symbols).count == symbols.count)
         #expect(symbols.allSatisfy { !$0.isEmpty })
+    }
+
+    /// Pinned the same way `CaptureFeedbackTests` pins the HUD: the mapping
+    /// from meaning to chrome is what keeps a refusal from rendering as a
+    /// confirmation, and a silent edit to it is invisible everywhere else.
+    @Test func everySeverityPinsItsSymbolAndDuration() {
+        #expect(ToastSeverity.confirmation.symbolName == "checkmark.circle.fill")
+        #expect(ToastSeverity.confirmation.duration == .seconds(2))
+
+        #expect(ToastSeverity.warning.symbolName == "exclamationmark.circle.fill")
+        #expect(ToastSeverity.warning.duration == .seconds(3))
+
+        #expect(ToastSeverity.refusal.symbolName == "exclamationmark.triangle.fill")
+        #expect(ToastSeverity.refusal.duration == .seconds(4))
     }
 
     /// A refusal is an instruction to read and act on; a confirmation has been

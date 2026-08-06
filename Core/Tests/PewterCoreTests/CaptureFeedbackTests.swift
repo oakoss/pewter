@@ -34,18 +34,21 @@ struct CaptureFeedbackTests {
     /// different repairs, and one string for both sends half the users to
     /// check something that was never wrong.
     @Test func eachUnreadableCauseNamesItsOwnRepair() {
-        let messages = [
-            UnreadableCause.notPermitted,
-            .notUTF8,
-            .other("disk on fire"),
-        ].map { CaptureFeedback.notesUnavailable(.unreadable(cause: $0)).message }
+        func message(for cause: UnreadableCause) -> String {
+            CaptureFeedback.notesUnavailable(.unreadable(cause: cause)).message
+        }
+        let messages = [message(for: .notPermitted), message(for: .notUTF8), message(for: .other("disk on fire"))]
 
         #expect(Set(messages).count == messages.count)
-        // Each names the *repair*, not merely the cause. "isn't UTF-8" tells
-        // the user what is wrong and leaves them to work out what to do; the
-        // whole complaint behind this was a message that named neither.
-        #expect(messages[0].contains("check its permissions"))
-        #expect(messages[1].contains("re-save it as UTF-8"))
+        // Keyed by cause, not by position: reordering the list above would
+        // otherwise swap which repair each assertion checks, and both strings
+        // would still be somewhere in the set for the distinctness check.
+        //
+        // Each names the *repair*, not merely the cause. "isn't UTF-8" says
+        // what is wrong and leaves the user to work out what to do; the
+        // complaint behind this was a message that gave neither.
+        #expect(message(for: .notPermitted).contains("check its permissions"))
+        #expect(message(for: .notUTF8).contains("re-save it as UTF-8"))
     }
 
     /// The two named causes are the ones with a repair the app can state, so
