@@ -385,7 +385,8 @@ an AX answer delivers plain text that passes through untouched.
       the panel is open → the row re-renders and the click target and
       pointing-hand region follow the new link
 - [ ] Pointing-hand cursor on hover over: row checkbox, hover copy button,
-      the ellipsis menu button, and the permission banner's Enable… button
+      the ellipsis menu button, the permission banner's Enable… button, and
+      the storage banner's Reveal button
 - [ ] Hover the copy button, then move the mouse straight off the row (the
       button disappears) → cursor returns to the arrow, not stuck as a
       pointing hand
@@ -529,10 +530,14 @@ an AX answer delivers plain text that passes through untouched.
 - [ ] With VoiceOver's speech routed to a different output device than the
       system default, capture → the sound follows the system default, so it
       may be inaudible; accepted limitation, no in-process way to detect it
-- [ ] With VO running and the notes file unreadable, capture → the fourth
-      sound plays and is distinct from the capture-failed one; the remedies
-      differ (fix the file vs fix the selection), so hearing them as the
-      same would send the user to debug the wrong thing
+- [ ] With VO running and the notes file unreadable, capture → the
+      notes-unavailable sound plays and is distinct from the capture-failed
+      one; the remedies differ (fix the file vs fix the selection), so
+      hearing them as the same would send the user to debug the wrong thing
+- [ ] With VO running, edit the notes file outside the app and capture twice
+      quickly → a refused capture plays the fifth, adoption-in-flight sound,
+      distinct from the notes-unavailable one. By ear these are the only
+      thing separating "go and repair your file" from "press the key again"
 - [ ] With VO running and the notes file unreadable, VO-navigate the empty
       list → it announces "Notes unavailable". The symbol restates the
       message, so leaving it visible to VoiceOver makes it the stop and the
@@ -591,15 +596,32 @@ an AX answer delivers plain text that passes through untouched.
 - [ ] `chmod 000` the notes file, relaunch → red "saving is off" banner; the
       file's bytes are untouched by any in-app edit; `chmod 644` + relaunch
       recovers
+- [ ] That banner names the *permission* repair ("check its permissions"), and
+      a non-UTF8 file's banner names the *encoding* one ("re-save it as
+      UTF-8") — two causes must not render one string, or half the users are
+      sent to debug something that was never wrong
+- [ ] Either banner has a Reveal button that opens the notes file in Finder.
+      Without it the banner names a file the user has never been told the
+      location of
 - [ ] `chmod 000` the notes file, relaunch, open the panel → the list reads
       "Notes unavailable", not the capture hint: an empty list here would be
       indistinguishable from a fresh install
 - [ ] With that same unreadable file, type into the composer and press Return
-      → a toast says the notes file can't be read, the text stays in the
-      field, and nothing is added
+      → a toast names the repair for that cause, the text stays in the field,
+      and nothing is added
+- [ ] That refusal toast reads as a distinct surface against the translucent
+      panel — visible capsule edge and shadow, not floating text — and carries
+      a leading warning-triangle symbol. Compare it against a confirmation
+      toast (Copy Diagnostics with the panel open): the two must not look
+      alike, since one says the work landed and the other says it was thrown
+      away. Check in both light and dark appearance, and with System Settings
+      → Accessibility → Display → Reduce Transparency on, since the design
+      leans on materials
 - [ ] With that same unreadable file, select text in another app and
-      double-tap Shift → the HUD reads "Can't read your notes file — nothing
-      was saved" with the failure sound, rather than appearing to capture
+      double-tap Shift → the HUD reads "Can't read your notes file — check its
+      permissions" with the failure sound, rather than appearing to capture.
+      A non-UTF8 file instead reads "Can't read your notes file — re-save it
+      as UTF-8": the HUD names the same repair the banner does
 - [ ] Still with the app running, `chmod 644`, then summon the panel, press
       Return in the composer, or capture again → the notes reappear, the red
       banner clears, and saving works, with no relaunch. A mode change fires
@@ -620,16 +642,28 @@ an AX answer delivers plain text that passes through untouched.
       the app runs → the panel recovers on its own via the watcher, with no
       summon needed; this is the repair the watcher can see
 - [ ] `chmod 000` the notes file with the app still running (a mode change
-      fires no watcher event), then add a note → the banner appears without a
-      relaunch and the file's bytes are untouched; `chmod 644` and add
-      another note → saving resumes, still without a relaunch, and the notes
-      typed while it was locked are written too
+      fires no watcher event), then type a note and press Return → it is
+      *refused*, not accepted: the banner appears without a relaunch, a toast
+      names the permission repair, the draft stays in the field, and the file's
+      bytes are untouched. The composer's own Return is what notices the
+      break — no save has failed yet, so nothing else knows. `chmod 644` and
+      press Return again → saving resumes, still without a relaunch, and the
+      draft that was held in the field lands
+- [ ] The same break, but capture instead of the composer → the capture is
+      refused with the same permission wording on the HUD. Unlike the composer
+      there is no draft to hold, so the text is gone; reporting "Captured"
+      there is the failure this refusal exists to prevent
 - [ ] The same runtime break, recovered by capture alone: `chmod 000` with the
       app running, capture once (refused), `chmod 644`, capture again → it
       lands. Distinct from the launch-time capture-only item above, and the
       case that actually regressed: a runtime break leaves the document real,
       so a retry keyed on the placeholder flag does nothing and the user is
       refused until they relaunch
+- [ ] Edit the notes file outside the app, then — without summoning the panel
+      — capture twice in quick succession. If a capture is refused it must say
+      "Your notes just changed on disk — capture again" with the circular-arrow
+      HUD symbol, never "can't read your notes file": the file is fine and the
+      window closes by itself
 - [ ] Quit immediately after adding an item → item survived (flush on quit)
 - [ ] An item with a blank line in the middle (captured multi-paragraph
       prompt) survives an external editor that strips trailing whitespace

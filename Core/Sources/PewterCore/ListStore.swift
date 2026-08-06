@@ -18,19 +18,53 @@ public final class ListStore {
     /// adopted but this store has not applied yet.
     private var generation = FileStorage.DocumentGeneration.initial
 
-    /// True when `document` stands in for notes that could not be read — an
-    /// unknown list, not an empty one. Set only at load and cleared once real
-    /// content arrives; it never goes back up within a process.
+    /// Why `document` stands in for notes that could not be read — an unknown
+    /// list, not an empty one. Set only at load and cleared once real content
+    /// arrives; it never goes back up within a process.
     ///
     /// Distinct from saving being suspended: a file that turns unreadable
     /// while the app runs leaves the real document in memory, so the panel
     /// keeps showing the user's notes and editing them still makes sense.
-    /// That says nothing about durability — see `inputWouldBeDiscarded`.
-    public private(set) var documentIsPlaceholder = false
-    /// Keeps the failed-retry line to once per stretch of unreadability. The
-    /// retry runs on every panel summon and every refused input, so a file
-    /// left unrepaired would otherwise bury the line explaining why.
-    private var loggedFailedReload = false
+    /// That says nothing about durability — see `unavailability`.
+    public private(set) var placeholderCause: UnreadableCause?
+
+    /// True when the list on screen is not the user's notes. The narrow test,
+    /// for surfaces describing the *document* — the empty state and the
+    /// composer's placeholder text. A surface reporting whether input will be
+    /// kept wants `unavailability`, which is broader.
+    public var documentIsPlaceholder: Bool {
+        placeholderCause != nil
+    }
+
+    /// Storage health, mirrored here so SwiftUI can observe it: `FileStorage`
+    /// is not `@Observable`, and a view bound to its `health` would render
+    /// once and then stick.
+    ///
+    /// Deliberately not public: this can be a main-queue hop behind, and a
+    /// decision branched on a stale value is exactly the "Captured" that
+    /// wasn't. `unavailability` is the public way to ask, and it reads the
+    /// storage directly. Re-sampled synchronously wherever the store pokes the
+    /// storage itself, so a panel that summons, retries and draws in one turn
+    /// shows the banner that retry earned rather than the previous one.
+    private(set) var health = FileStorage.Health.ok
+
+    /// Banner text for a storage problem worth interrupting the user about,
+    /// nil when there is none.
+    ///
+    /// Only `health` feeds it. The other two refusal states are deliberately
+    /// toast-only: an in-flight adoption clears itself within a turn, so a
+    /// banner for it would flicker and name no action, and a placeholder
+    /// already says so through the empty state and the composer's prompt.
+    public var storageBanner: String? {
+        health.bannerMessage
+    }
+
+    /// The cause the last failed-retry line named, so the line appears once
+    /// per distinct failure rather than once per retry. The retry runs on
+    /// every panel summon and every refused input, so a file left unrepaired
+    /// would otherwise bury the line explaining why — but a file whose failure
+    /// mode *changed* has something new to say.
+    private var lastLoggedReloadFailure: UnreadableCause?
 
     /// One undoable mutation: the lines it removed, plus any line it
     /// inserted (merge), each with its recorded index. Undo removes the
@@ -63,8 +97,16 @@ public final class ListStore {
         self.storage = storage
     }
 
-    /// Loads from storage and starts watching for external edits. The handler
-    /// is installed before the first load so no change window is missed.
+    /// Loads from storage and starts watching for external edits. The
+    /// external-change handler is installed before the first load so no change
+    /// window is missed.
+    ///
+    /// Health is registered *after*, deliberately: registration delivers the
+    /// current value, so wiring it first would queue the pre-load `.ok` behind
+    /// the load's own verdict and land it second, clearing a banner over a
+    /// file that cannot be read. Nothing is missed by waiting — the
+    /// registration runs on the storage's queue, so a change is either folded
+    /// into that initial value or delivered after it.
     public static func loadFrom(storage: FileStorage) -> ListStore {
         let store = ListStore(storage: storage)
         storage.setOnExternalChange { [weak store] newDocument, generation in
@@ -80,7 +122,26 @@ public final class ListStore {
         let loaded = storage.load()
         store.document = loaded.document
         store.generation = loaded.generation
-        store.documentIsPlaceholder = loaded.isPlaceholder
+        // Both from the load's own verdict, so they describe one read.
+        // Seeded rather than left to the first delivery: that delivery is a
+        // main-queue hop away, and a panel drawn in between would show no
+        // banner over a file the load already found broken.
+        store.placeholderCause = loaded.health.unreadableCause
+        store.health = loaded.health
+        storage.setOnHealthChange { [weak store, weak storage] _ in
+            // The delivered value is discarded and the storage re-read: this
+            // hop is a ping that something changed, not the answer. A value
+            // captured at send time can be older than a synchronous sample a
+            // retry has already taken, and assigning it would re-raise a
+            // banner that retry had cleared until the next delivery landed.
+            // Re-reading on arrival is always the newest answer.
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let storage else { return }
+                    store?.health = storage.health
+                }
+            }
+        }
         return store
     }
 
@@ -110,40 +171,48 @@ public final class ListStore {
         Logger.storage
             .info("external edit replaced the document: \(before) → \(after) notes; undo/redo history cleared")
         document = newDocument
-        documentIsPlaceholder = false
+        placeholderCause = nil
         deletedBatches.removeAll()
         redoBatches.removeAll()
         self.generation = generation
     }
 
-    /// True when a note accepted now would not reach disk: the document
-    /// isn't the user's notes, or saving is suspended and anything accepted
-    /// dies at quit.
+    /// Why a note accepted now would not reach disk, or nil when it would.
+    /// The right test for any surface that reports whether input was kept; see
+    /// `Unavailability` for why the reason travels.
     ///
     /// `.saveFailed` is excluded deliberately, not by omission: an unreadable
     /// file will refuse every save until it is repaired, whereas a failed
     /// write is often transient (a full disk that drains, a volume that
     /// remounts) and the next debounce may well land. Refusing captures on it
     /// would trade a rare lie for a common one.
-    ///
-    /// Broader than `documentIsPlaceholder`, and the right test for a surface
-    /// that reports success — capture fires with the panel closed, where an
-    /// affirmative "Captured" is the only signal the user gets. The composer
-    /// still uses the narrower flag, which is not yet right, and the gap is
-    /// wider than a timing window: it misses the first note after a runtime
-    /// break (health flips only once the debounced write fails) *and* the
-    /// whole in-flight-adoption state, which no banner can ever show because
-    /// health there is `.ok`. Switching it needs an observable health mirror —
-    /// pw-d0a.
-    public var inputWouldBeDiscarded: Bool {
-        guard let storage else { return documentIsPlaceholder }
-        // The generation check is what covers a retry that recovered by
-        // adopting: the file reads fine and health is `.ok`, but the adopted
-        // document has not been delivered here yet and will replace anything
-        // accepted in the meantime.
-        return documentIsPlaceholder
-            || storage.health == .unreadable
-            || !storage.accepts(generation)
+    public var unavailability: Unavailability? {
+        // A detached store has no file to lose a note to. It can't hold a
+        // placeholder either — only the two storage-backed paths set one.
+        guard let storage else { return nil }
+        // The storage rather than the `health` mirror: a save or a retry that
+        // has discovered a break has its notification queued behind this
+        // caller, and the mirror would report the state it disproved. One
+        // hop, not two — an adoption landing between separate reads is missed.
+        let status = storage.status(for: generation)
+        // Ordered by which remedy outranks which, not by which flag is
+        // cheapest. An unreadable file is a repair to go and make and outlasts
+        // everything else, so it wins wherever it holds.
+        if let cause = status.health.unreadableCause {
+            return .unreadable(cause: cause)
+        }
+        // Then the handoff window: the file reads fine, health is `.ok`, and
+        // an adopted document has not been delivered here yet. This
+        // sits above `placeholderCause` because a *recovering* placeholder
+        // passes through exactly this state — health clears one main-queue
+        // turn before the adoption that clears the placeholder lands, and
+        // naming the old cause there tells a user who has already repaired
+        // their file to go and repair it again.
+        guard status.accepts else { return .adoptionInFlight }
+        // A placeholder with healthy storage and nothing in flight: reachable
+        // when the unreadable file is deleted outright, which resumes saving
+        // without ever handing this store real content.
+        return placeholderCause.map { .unreadable(cause: $0) }
     }
 
     /// Re-reads the file and takes it up if it has become readable.
@@ -155,17 +224,44 @@ public final class ListStore {
     public func reloadIfPlaceholder() {
         guard documentIsPlaceholder, let storage else { return }
         let loaded = storage.load()
-        guard !loaded.isPlaceholder else {
+        // Taken from the load rather than re-read, so one look at the file
+        // feeds both the mirror and the placeholder: a second `queue.sync`
+        // could catch a watcher event in between and leave the banner
+        // describing a different read than the refusal does. Set synchronously
+        // because the storage's own notification is a main-queue hop behind
+        // this caller, and a panel about to draw would keep the banner this
+        // load cleared — or miss the one it raised.
+        health = loaded.health
+        if let cause = loaded.health.unreadableCause {
+            // A repair can change the failure mode instead of fixing it — a
+            // UTF-16 re-save of a file that was unreadable for permissions —
+            // and every surface names the cause, so the new one is taken up
+            // even though the document stays a placeholder.
+            placeholderCause = cause
+            // `load()` minted a generation whether or not it could read the
+            // file. Not taking it strands this store behind the storage for
+            // good, with nothing in flight to catch up to — and the refusal
+            // that produces is `.adoptionInFlight`, whose whole remedy is
+            // "try again", which would never work.
+            generation = loaded.generation
             // The user retried to find out whether their repair worked; a
-            // silent no-op looks identical to a stale banner.
-            if !loggedFailedReload {
-                loggedFailedReload = true
-                Self.logger.notice("retried the notes file; still unreadable")
+            // silent no-op looks identical to a stale banner. Keyed on the
+            // cause rather than on having logged at all: a permission fix that
+            // re-saves as UTF-16 is a new failure, and suppressing it leaves
+            // the log naming the repair the user already made.
+            if lastLoggedReloadFailure != cause {
+                lastLoggedReloadFailure = cause
+                let reason = cause.logDescription
+                Self.logger.notice("retried the notes file; still unreadable (\(reason))")
             }
             return
         }
-        loggedFailedReload = false
-        Self.logger.notice("notes file readable again on retry; adopting it")
+        lastLoggedReloadFailure = nil
+        // "Readable" covers a file that is gone, too: the load reports an
+        // absent file as an empty document, and adopting it is how a deletion
+        // reaches the store. Saying "adopting what is on disk" keeps the line
+        // true in both cases; the storage logs which one it was.
+        Self.logger.notice("notes file re-read on retry; adopting what is on disk")
         // A repaired file is an external change like any other: same
         // adoption, same history reset.
         applyExternalChange(loaded.document, generation: loaded.generation)
@@ -187,16 +283,20 @@ public final class ListStore {
     /// gating on `health == .unreadable` would let the first capture after a
     /// break report success.
     ///
-    /// Synchronous, so health *and the document* are current on return: an
-    /// adoption found here is taken up rather than awaited, which replaces the
-    /// document and clears undo history. A panel summon can therefore swap the
-    /// list out before it draws.
+    /// Synchronous, so health *and the document* are current on return: both
+    /// are taken from the refresh rather than awaited, and an adoption found
+    /// here is applied, which replaces the document and clears undo history. A
+    /// panel summon can therefore swap the list out before it draws.
     public func retryUnavailableStorage() {
         if documentIsPlaceholder {
             reloadIfPlaceholder()
             return
         }
         guard let storage else { return }
+        let refresh = storage.refreshFromDisk()
+        // Taken here rather than left to the change handler, which is queued
+        // a hop behind and would miss the window this refresh closed.
+        health = refresh.health
         // Reconciling can adopt, which leaves this store behind until the
         // delivery arrives on the next main-queue turn — and a surface asking
         // in between refuses, naming a file that reads perfectly. Taking the
@@ -207,29 +307,53 @@ public final class ListStore {
         // A store left behind by an *earlier* adoption is not covered: there
         // is nothing to hand back, and re-reading to catch up would race an
         // unlink into replacing the document with an empty one. That window
-        // closes by itself when the delivery lands on the next turn.
-        guard let adopted = storage.refreshFromDisk() else { return }
+        // closes by itself when the delivery lands on the next turn, and until
+        // it does `unavailability` reports `.adoptionInFlight`, whose remedy
+        // is to try again rather than to go and repair a healthy file.
+        guard let adopted = refresh.adopted else { return }
         applyExternalChange(adopted.document, generation: adopted.generation)
     }
 
-    /// Refused on a placeholder document: the note would be dropped when the
-    /// real content arrives. Surfaces check first because only they can name
-    /// the reason; this is the backstop for one that forgets, and it has to be
-    /// loud — a bare nil reads as "nothing to add" downstream.
-    @discardableResult
-    public func add(text: String) -> Item? {
-        guard !documentIsPlaceholder else {
-            assertionFailure("add() on a placeholder document; the calling surface must refuse and explain")
-            Self.logger.error("add refused: the document is a placeholder")
-            return nil
-        }
+    /// What became of an add. An optional conflated the two ways it can fail —
+    /// nothing to add is about the input, a refusal is about the file — so
+    /// callers switch rather than inferring a remedy from an absence.
+    public enum AddResult: Equatable, Sendable {
+        case added(Item)
+        /// Whitespace-only text; nothing was stored and nothing is wrong.
+        case emptyText
+        /// The text was fine but would not have reached disk.
+        case refused(Unavailability)
+    }
+
+    /// Appends `text`, refusing when it would not reach disk rather than
+    /// accepting it into a document that is about to be replaced.
+    ///
+    /// The refusal lives here, not in each surface, so a caller cannot forget
+    /// it and silently drop the user's text. It covers this method only —
+    /// every other mutation still persists unchecked (pw-jvu).
+    ///
+    /// Callers that can retry should call `retryUnavailableStorage()` first;
+    /// this does not, because the retry can replace the document out from
+    /// under a surface that is mid-render.
+    ///
+    /// Not `@discardableResult`: dropping the answer is how the user's text
+    /// goes missing without anyone being told, which is the whole failure this
+    /// return type exists to make impossible.
+    public func add(text: String) -> AddResult {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+        guard !trimmed.isEmpty else { return .emptyText }
+        // After the empty check: whitespace-only text has nothing to lose, and
+        // reporting a file problem for it names a remedy that would not have
+        // helped.
+        if let unavailability {
+            Self.logger.error("add refused: \(unavailability.logDescription, privacy: .public)")
+            return .refused(unavailability)
+        }
         let item = Item(text: trimmed)
         document.append(item)
         invalidateRedo()
         persist()
-        return item
+        return .added(item)
     }
 
     public func updateText(id: UUID, text: String) {
@@ -404,12 +528,16 @@ public final class ListStore {
     /// flight and will replace this one on delivery. Sample it after a save.
     /// False without storage — a detached store has nothing to lose.
     ///
-    /// `.saveFailed` counts here though `inputWouldBeDiscarded` excludes it:
+    /// `.saveFailed` counts here though `unavailability` excludes it:
     /// that exclusion rests on a later debounce landing, and at quit there is
     /// no later debounce.
     var documentDidNotReachDisk: Bool {
         guard let storage else { return false }
-        return storage.health != .ok || !storage.accepts(generation)
+        // One hop for the same reason as `unavailability`, and it matters more
+        // here: this is the quit path, where a missed break is the last chance
+        // to say so rather than something the next debounce retries.
+        let status = storage.status(for: generation)
+        return status.health != .ok || !status.accepts
     }
 
     /// Saves immediately, reporting whether anything was left unsaved.

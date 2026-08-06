@@ -7,17 +7,20 @@ public enum CaptureFeedback: Equatable, Sendable {
     case captured
     case nothingSelected
     case captureFailed
-    /// The notes file couldn't be read, so there is nowhere to put the
-    /// capture. Distinct from `captureFailed`: the text was read fine, and
-    /// the user's remedy is the file, not the selection.
-    case notesUnavailable
+    /// The text was read fine but had nowhere to go. Distinct from
+    /// `captureFailed`: the user's remedy is the file or a second attempt,
+    /// not the selection. Which of those it is comes from the reason.
+    case notesUnavailable(Unavailability)
 
     public var symbolName: String {
         switch self {
         case .captured: "checkmark.circle"
         case .nothingSelected: "xmark.circle"
         case .captureFailed: "exclamationmark.circle"
-        case .notesUnavailable: "exclamationmark.triangle"
+        // A handoff window is a "try that again", not a fault: the arrows say
+        // so without the alarm a warning triangle carries.
+        case .notesUnavailable(.adoptionInFlight): "arrow.triangle.2.circlepath"
+        case .notesUnavailable(.unreadable): "exclamationmark.triangle"
         }
     }
 
@@ -26,7 +29,18 @@ public enum CaptureFeedback: Equatable, Sendable {
         case .captured: "Captured"
         case .nothingSelected: "No text selected"
         case .captureFailed: "Couldn't capture — try copying manually"
-        case .notesUnavailable: "Can't read your notes file — nothing was saved"
+        // Each names the repair that applies.
+        case .notesUnavailable(.unreadable(.notPermitted)):
+            "Can't read your notes file — check its permissions"
+        case .notesUnavailable(.unreadable(.notUTF8)):
+            "Can't read your notes file — re-save it as UTF-8"
+        // No arm to name: the cause is whatever the system reported, and
+        // inventing a repair for it would be worse than admitting there
+        // isn't a specific one.
+        case .notesUnavailable(.unreadable(.other)):
+            "Can't read your notes file — nothing was saved"
+        case .notesUnavailable(.adoptionInFlight):
+            "Your notes just changed on disk — capture again"
         }
     }
 
@@ -46,12 +60,17 @@ public enum CaptureFeedback: Equatable, Sendable {
     /// who is frontmost and doesn't cut across whatever VoiceOver is
     /// currently reading. Distinct per outcome — telling them apart by ear
     /// is the whole point.
+    ///
+    /// The unreadable causes share one: they differ in which repair to make,
+    /// which is what the message is for, and a user who can't tell two alerts
+    /// apart is no worse off than one who hears a single "your file is broken".
     public var soundName: String {
         switch self {
         case .captured: "Pop"
         case .nothingSelected: "Tink"
         case .captureFailed: "Basso"
-        case .notesUnavailable: "Sosumi"
+        case .notesUnavailable(.unreadable): "Sosumi"
+        case .notesUnavailable(.adoptionInFlight): "Submarine"
         }
     }
 }

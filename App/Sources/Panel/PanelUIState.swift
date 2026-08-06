@@ -1,6 +1,7 @@
 import Accessibility
 import Foundation
 import Observation
+import PewterCore
 
 /// Transient UI signals the capture pipeline sends into the panel.
 @MainActor
@@ -10,11 +11,20 @@ final class PanelUIState {
     /// path can clear it — a capture landing behind an active filter is
     /// invisible and reads as a failed capture.
     var query = ""
-    var toast: String?
+
+    /// A toast and what it means. Paired so the two can't be set apart and
+    /// drift — a refusal rendered in confirmation chrome is the failure this
+    /// exists to prevent.
+    struct Toast: Equatable {
+        let message: String
+        let severity: ToastSeverity
+    }
+
+    /// Set only through `showToast`: a direct write would skip the
+    /// announcement and the dismiss timer, leaving a toast up for good.
+    private(set) var toast: Toast?
     var highlightedItemID: UUID?
     var showsPermissionBanner = false
-    /// Persistent storage-failure banner; unlike toasts these usually repeat.
-    var storageError: String?
     /// Empty-state hint reflecting the configured capture trigger.
     var captureHint = "Double-tap Shift to capture a selection"
     var onRequestPermission: (() -> Void)?
@@ -51,14 +61,14 @@ final class PanelUIState {
     /// `announces: false` is for callers that already announced the same
     /// message on another surface (the status-item flash) — one outcome
     /// must not be spoken twice.
-    func showToast(_ message: String, for duration: Duration = .seconds(2), announces: Bool = true) {
-        toast = message
+    func showToast(_ message: String, severity: ToastSeverity, announces: Bool = true) {
+        toast = Toast(message: message, severity: severity)
         if announces {
             AccessibilityNotification.Announcement(message).post()
         }
         toastTask?.cancel()
         toastTask = Task { [weak self] in
-            try? await Task.sleep(for: duration)
+            try? await Task.sleep(for: severity.duration)
             guard !Task.isCancelled else { return }
             self?.toast = nil
         }

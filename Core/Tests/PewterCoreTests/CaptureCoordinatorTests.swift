@@ -109,14 +109,14 @@ struct CaptureCoordinatorTests {
 
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        store.add(text: "a real note")
+        _ = store.add(text: "a real note")
         store.flush()
         #expect(!store.documentIsPlaceholder)
 
         // Unreadable now, with the user's real document still in memory.
         try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
         store.flush()
-        #expect(storage.health == .unreadable)
+        #expect(storage.health == .unreadable(cause: .notUTF8))
         #expect(!store.documentIsPlaceholder)
 
         let reader = FakeReader(result: "captured during a suspension")
@@ -124,8 +124,38 @@ struct CaptureCoordinatorTests {
         let (coordinator, _, outcomes) = makeCoordinator(reader: reader, capture: capture, store: store)
         coordinator.captureSelection()
 
-        #expect(outcomes.all == [CaptureCoordinator.Outcome.notesUnavailable])
+        #expect(outcomes.all == [.notesUnavailable(.unreadable(cause: .notUTF8))])
         #expect(store.items.map(\.text) == ["a real note"])
+    }
+
+    /// The residual half of the adoption problem: an adoption the capture did
+    /// not trigger has already happened, so there is nothing to drain and the
+    /// store stays behind until the delivery lands. The capture is refused —
+    /// correctly, the note would be replaced — but the file reads perfectly,
+    /// and reporting "can't read your notes file" sent the user to check
+    /// permissions when the remedy was to press the key again.
+    @Test func aCaptureRefusedForAnAdoptionDoesNotBlameTheFile() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-capture-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        _ = store.add(text: "a real note")
+        store.flush()
+
+        // Adopted by the save itself, not by the capture's retry, so the
+        // capture finds the store behind with nothing to rebase it.
+        try Data("- [ ] rewritten by hand\n".utf8).write(to: url, options: .atomic)
+        store.flush()
+
+        let reader = FakeReader(result: "captured into the handoff window")
+        let capture = FakeCapture(result: .copied("should not be used"))
+        let (coordinator, _, outcomes) = makeCoordinator(reader: reader, capture: capture, store: store)
+        coordinator.captureSelection()
+
+        #expect(storage.health == .ok, "the file reads perfectly throughout")
+        #expect(outcomes.all == [.notesUnavailable(.adoptionInFlight)])
     }
 
     /// An external edit the app never saw makes the capture's own retry adopt
@@ -140,7 +170,7 @@ struct CaptureCoordinatorTests {
 
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        store.add(text: "a real note")
+        _ = store.add(text: "a real note")
         store.flush()
 
         try Data("- [ ] edited outside\n".utf8).write(to: url, options: .atomic)
@@ -177,7 +207,7 @@ struct CaptureCoordinatorTests {
         let (coordinator, _, outcomes) = makeCoordinator(reader: reader, capture: capture, store: store)
         coordinator.captureSelection()
 
-        #expect(outcomes.all == [CaptureCoordinator.Outcome.notesUnavailable])
+        #expect(outcomes.all == [.notesUnavailable(.unreadable(cause: .notUTF8))])
         #expect(store.items.isEmpty)
     }
 
