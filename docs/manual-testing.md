@@ -542,10 +542,12 @@ an AX answer delivers plain text that passes through untouched.
       notes-unavailable sound plays and is distinct from the capture-failed
       one; the remedies differ (fix the file vs fix the selection), so
       hearing them as the same would send the user to debug the wrong thing
-- [ ] With VO running, edit the notes file outside the app and capture twice
-      quickly → a refused capture plays the adoption-in-flight sound, distinct
-      from the notes-unavailable one. By ear these are the only thing
-      separating "go and repair your file" from "press the key again"
+- [ ] OPPORTUNISTIC — same unforceable window as its storage-section twin.
+      With VO running, a refused capture plays the adoption-in-flight sound,
+      distinct from the notes-unavailable one. By ear these are the only thing
+      separating "go and repair your file" from "press the key again". Both
+      sounds are confirmed present, so silence here means the window was
+      never hit, not a missing asset
 - [ ] With VO running and the notes file unreadable, VO-navigate the empty
       list → it announces "Notes unavailable". The symbol restates the
       message, so leaving it visible to VoiceOver makes it the stop and the
@@ -627,7 +629,9 @@ an AX answer delivers plain text that passes through untouched.
       leans on materials
 - [ ] With that same unreadable file, select text in another app and
       double-tap Shift → the HUD reads "Can't read your notes file — check its
-      permissions" with the failure sound, rather than appearing to capture.
+      permissions", rather than appearing to capture. The matching sound plays
+      only with VoiceOver running — capture is silent for everyone else by
+      design, so turn VO on before expecting one (see the VoiceOver section).
       A non-UTF8 file instead reads "Can't read your notes file — re-save it
       as UTF-8": the HUD names the same repair the banner does
 - [ ] Still with the app running, `chmod 644`, then summon the panel, press
@@ -667,11 +671,18 @@ an AX answer delivers plain text that passes through untouched.
       case that actually regressed: a runtime break leaves the document real,
       so a retry keyed on the placeholder flag does nothing and the user is
       refused until they relaunch
-- [ ] Edit the notes file outside the app, then — without summoning the panel
-      — capture twice in quick succession. If a capture is refused it must say
-      "Your notes just changed on disk — capture again" with the circular-arrow
-      HUD symbol, never "can't read your notes file": the file is fine and the
-      window closes by itself
+- [ ] OPPORTUNISTIC — cannot be forced by hand, so an unticked box here is
+      not a defect. Editing the notes file outside the app opens a handoff
+      window of a few milliseconds between storage adopting the new content
+      and the store receiving it; a capture landing inside it is refused.
+      Measured 2026-08-06: 51 captures against a file rewritten every
+      40–120ms never once hit it. The refusal itself is covered by
+      `CaptureCoordinatorTests` and `ListStoreTests`, and the HUD render path
+      is the same one the unreadable cases above exercise — so the untested
+      remainder is only "is the window reachable in the wild". If you do see
+      it, it must read "Your notes just changed on disk — capture again" with
+      the circular-arrow symbol, never "can't read your notes file": the file
+      is fine and the window closes by itself
 - [ ] Quit immediately after adding an item → item survived (flush on quit)
 - [ ] An item with a blank line in the middle (captured multi-paragraph
       prompt) survives an external editor that strips trailing whitespace
