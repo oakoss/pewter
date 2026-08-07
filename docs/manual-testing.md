@@ -4,6 +4,14 @@ Capture and permissions can't run in CI (no Accessibility grant on runners).
 Run through this before release, and after any change to `App/Sources/Capture/`
 or the status item / panel / window layer.
 
+Panel-state items don't have to be judged by eye. With the panel open,
+`swift tools/axdump.swift --grep panel.` prints every element the panel
+exposes, keyed by the identifiers in `PanelAccessibilityID` — so "the banner
+names the permission repair" or "the refused draft is still in the field"
+become strings you can read rather than questions you answer from memory.
+Transient surfaces need the dump run while they are up; the refusal toast
+clears after four seconds.
+
 ## Permissions
 
 - [ ] `tccutil reset Accessibility com.oakoss.Pewter` and
