@@ -527,11 +527,11 @@ an AX answer delivers plain text that passes through untouched.
       value
 - [ ] GATING: capture from another app with VO running → the outcome is
       audible without looking, as a distinct sound per result (captured /
-      nothing selected / capture failed / notes unavailable), and the four
-      are tellable apart by ear. Speech is deliberately not the channel: macOS speaks
-      announcements only for the frontmost app and the capture source is
-      frontmost by design — if nothing is audible, the feedback design
-      needs rework, not a checked box
+      nothing selected / capture failed / unreadable notes / adoption in
+      flight), and all five are tellable apart by ear. Speech is deliberately
+      not the channel: macOS speaks announcements only for the frontmost app
+      and the capture source is frontmost by design — if nothing is audible,
+      the feedback design needs rework, not a checked box
 - [ ] Two captures in quick succession with VO running → a repeat of the
       same outcome restarts its sound; two different outcomes both stay
       audible (losing the first would hide that a capture failed)
@@ -546,8 +546,10 @@ an AX answer delivers plain text that passes through untouched.
       With VO running, a refused capture plays the adoption-in-flight sound,
       distinct from the notes-unavailable one. By ear these are the only thing
       separating "go and repair your file" from "press the key again". Both
-      sounds are confirmed present, so silence here means the window was
-      never hit, not a missing asset
+      sounds are confirmed present, so silence is not a missing asset — but
+      it is not proof the window was missed either, since the output-device
+      limitation above makes any sound inaudible. Record silence as
+      unconfirmed, never as a pass
 - [ ] With VO running and the notes file unreadable, VO-navigate the empty
       list → it announces "Notes unavailable". The symbol restates the
       message, so leaving it visible to VoiceOver makes it the stop and the
