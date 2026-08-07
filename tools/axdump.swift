@@ -33,22 +33,34 @@ func fail(_ message: String) -> Never {
     exit(2)
 }
 
-let bundleID = arguments.count > 1 && !arguments[1].hasPrefix("--") ? arguments[1] : "com.oakoss.Pewter"
+// Consumed by position, not by value: matching on value accepts a repeated
+// token because the duplicate is already in the consumed set, so
+// `axdump com.oakoss.Pewter com.oakoss.Pewter` silently dumps the first and
+// drops the second rather than saying the command made no sense.
+var next = 1
+var bundleID = "com.oakoss.Pewter"
+if next < arguments.count, !arguments[next].hasPrefix("--") {
+    bundleID = arguments[next]
+    next += 1
+}
+
 var filter: String?
-if let index = arguments.firstIndex(of: "--grep") {
+if next < arguments.count {
+    guard arguments[next] == "--grep" else {
+        fail("Unrecognized argument \(arguments[next].debugDescription).")
+    }
     // A missing or flag-shaped value used to leave the filter nil, which
     // dumps the whole tree at exit 0 — a silent success that reads exactly
     // like "your filter matched everything".
-    guard index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") else {
+    guard next + 1 < arguments.count, !arguments[next + 1].hasPrefix("--") else {
         fail("--grep needs a value.")
     }
-    filter = arguments[index + 1]
+    filter = arguments[next + 1]
+    next += 2
 }
-// Anything left over was a typo'd flag or a bundle id in the wrong position,
-// and dropping it silently gives a dump of the wrong thing.
-let consumed = Set([arguments[0], bundleID, "--grep", filter].compactMap(\.self))
-if let stray = arguments.dropFirst().first(where: { !consumed.contains($0) }) {
-    fail("Unrecognized argument \(stray.debugDescription).")
+
+if next < arguments.count {
+    fail("Unrecognized argument \(arguments[next].debugDescription).")
 }
 
 guard AXIsProcessTrusted() else {
