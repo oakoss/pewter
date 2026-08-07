@@ -129,5 +129,6 @@ struct ShortcutGuideView: View {
         // while the guide is up instead.
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Keyboard shortcuts")
+        .accessibilityIdentifier(PanelAccessibilityID.shortcutGuide)
     }
 }

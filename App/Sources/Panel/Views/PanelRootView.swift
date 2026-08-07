@@ -248,6 +248,7 @@ struct PanelRootView: View {
             TextField("Search", text: $uiState.query)
                 .textFieldStyle(.plain)
                 .accessibilityLabel("Search notes")
+                .accessibilityIdentifier(PanelAccessibilityID.searchField)
                 .focused($focus, equals: .search)
             panelMenu
         }
@@ -277,6 +278,7 @@ struct PanelRootView: View {
         .fixedSize()
         .pointingHandCursor()
         .accessibilityLabel("More actions")
+        .accessibilityIdentifier(PanelAccessibilityID.menuButton)
     }
 
     private func itemList(_ sections: [MarkdownDocument.Section]) -> some View {
@@ -339,6 +341,10 @@ struct PanelRootView: View {
                                 )
                             )
                             .id(item.id)
+                            // The item's id, not its position: a filter, a
+                            // sort or an external edit moves rows, and an
+                            // index would silently retarget a different note.
+                            .accessibilityIdentifier(PanelAccessibilityID.noteRow(item.id))
                         }
                     }
                     if showsEmptyState {
@@ -358,6 +364,7 @@ struct PanelRootView: View {
             // VoiceOver announces the container by name instead of a bare
             // "scroll area".
             .accessibilityLabel("Notes")
+            .accessibilityIdentifier(PanelAccessibilityID.noteList)
             // contentShape makes the empty area below the rows hit-testable;
             // the gesture fires only for clicks no row consumed.
             .contentShape(Rectangle())
@@ -426,6 +433,9 @@ struct PanelRootView: View {
         // The symbol duplicates what the message says; combining reads them
         // as one outcome instead of stopping on an unlabelled "warning".
         .accessibilityElement(children: .combine)
+        // After `combine`, not before: applied earlier the identifier lands on
+        // a child the combined element replaces, and no query finds it.
+        .accessibilityIdentifier(PanelAccessibilityID.toast)
     }
 
     /// The button is the difference between naming a repair and asking the
@@ -436,6 +446,14 @@ struct PanelRootView: View {
                 .foregroundStyle(.red)
             Text(message)
                 .font(.callout)
+                // On the message, not the enclosing stack: an identifier on a
+                // bare HStack propagates to every descendant, so the icon and
+                // the text would both answer to it and a query would match
+                // three elements. The same propagation the list's label
+                // comment describes. Containing the stack instead would fix
+                // that too, but it changes what VoiceOver navigates, and this
+                // does not.
+                .accessibilityIdentifier(PanelAccessibilityID.storageBanner)
             Spacer()
             Button("Reveal") {
                 commands.revealNotesFile()
@@ -443,6 +461,7 @@ struct PanelRootView: View {
             .controlSize(.small)
             .pointingHandCursor()
             .accessibilityLabel("Reveal notes file in Finder")
+            .accessibilityIdentifier(PanelAccessibilityID.storageBannerReveal)
         }
         .padding(10)
         .background(.red.opacity(0.12))
@@ -454,12 +473,15 @@ struct PanelRootView: View {
                 .foregroundStyle(.orange)
             Text("Capture is off — grant Accessibility access")
                 .font(.callout)
+                // On the message for the same reason as the storage banner.
+                .accessibilityIdentifier(PanelAccessibilityID.permissionBanner)
             Spacer()
             Button("Enable…") {
                 uiState.onRequestPermission?()
             }
             .controlSize(.small)
             .pointingHandCursor()
+            .accessibilityIdentifier(PanelAccessibilityID.permissionBannerEnable)
         }
         .padding(10)
         .background(.orange.opacity(0.12))
@@ -483,6 +505,7 @@ struct PanelRootView: View {
         // Redundant while the symbol is the only other child, and kept so a
         // second line added later is announced with the message, not after it.
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(PanelAccessibilityID.emptyState)
     }
 
     /// A placeholder document must not read as an empty one — "capture
@@ -503,6 +526,7 @@ struct PanelRootView: View {
         TextField(quickAddPrompt.title, text: $draft, axis: .vertical)
             .textFieldStyle(.plain)
             .accessibilityLabel("New note")
+            .accessibilityIdentifier(PanelAccessibilityID.composer)
             // The label displaces the placeholder in the announcement; the
             // hint restores what the field accepts.
             .accessibilityHint(quickAddPrompt.hint)

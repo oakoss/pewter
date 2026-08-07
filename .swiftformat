@@ -6,4 +6,7 @@
 --stripunusedargs closure-only
 --self remove
 --header strip
---exclude build,Pewter.xcodeproj,Core/.build
+# tools/ holds standalone scripts, not build-target sources. Excluded because
+# `--header strip` treats their leading usage block as a file header and
+# deletes it — the documentation is the point of a dev tool.
+--exclude build,Pewter.xcodeproj,Core/.build,tools
