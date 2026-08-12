@@ -18,6 +18,10 @@ selecting all in the composer and dumping from the terminal, which still
 reported the full range. Re-check it the same way if a `sel=` item ever fails
 in a way that smells like the instrument rather than the app.
 
+What the range will not do is track your own typing: it reports what the app
+last set, so read it before editing the field, not after. Assertions about a
+caret the app just placed are sound; assertions about one you moved are not.
+
 ## Permissions
 
 - [ ] `tccutil reset Accessibility com.oakoss.Pewter` and
@@ -668,8 +672,10 @@ an AX answer delivers plain text that passes through untouched.
       — a tooling gap, not a caret bug. Then type one character: it appends
       and the draft is intact, which is the symptom the fix exists for and
       the only check that survives the whole instrument chain failing. Dump
-      before typing, since the character changes N. The collapse hangs off
-      the refusal rather than its cause, so the reason does not matter here
+      before typing: the reported range is what the app last set, and it
+      does not reliably follow your own edits — a dump taken afterwards can
+      still read the pre-typing figure. The collapse hangs off the refusal
+      rather than its cause, so the reason does not matter here
 - [ ] The same, with the search field left holding the *same* text as the
       draft: search for a phrase, get no match, then **click** into the
       composer and type that phrase. Not Cmd+N — that clears the query and
