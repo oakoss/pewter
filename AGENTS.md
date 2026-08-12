@@ -40,10 +40,25 @@ this.) So:
 - Nothing checks commit messages any more: not the hook, and CI has no
   commitlint job. Write `type(scope): subject` by hand against the scopes in
   `.commitlintrc.yml`.
-- `but push` still runs pre-push — it is the one command exposing
-  `--no-hooks`, and GitButler leaves `pre-push` unwrapped — so the Core tests
-  and `bd dolt push` should still fire. Inferred from that, not measured.
-  `bd dolt push` stays best-effort regardless; see the sync note below.
+- `but push` and `but pr new` still run pre-push — both expose `--no-hooks`,
+  and GitButler leaves `pre-push` unwrapped. Measured: a `but push` took 13s
+  and rewrote `Core/.build`, so `swift test` ran inside it. `bd dolt push`
+  stays best-effort regardless; see the sync note below.
+- `lefthook install` — the documented post-clone step above — overwrites
+  GitButler's `pre-commit` *and* `post-checkout` guards, renaming each to
+  `<hook>.old`. It prints the renames, so the risk is missing the line, not
+  an absent one. Restore with
+  `mv -f .git/hooks/pre-commit.old .git/hooks/pre-commit` and the same for
+  `post-checkout`.
+- Editing `lefthook.yml` arms that same displacement for later. The generated
+  hooks carry no sync logic themselves, but they call `lefthook run`, which
+  reinstalls whenever the config stops matching `.git/info/lefthook.checksum`
+  (hence `lefthook run --no-auto-install`). `but commit` runs no hooks, so
+  the trigger you will actually hit is pre-push: the next `but push` or
+  `but pr new` prints the same `Renamed` lines and needs the same restore.
+  `post-merge` and `post-checkout` call `lefthook run` bare too, so a pull
+  or a checkout can fire it as well. Measured on lefthook 2.1.10; both
+  wrapped hooks go, since `lefthook.yml` defines jobs for both.
 
 ## Architecture Overview
 
@@ -86,6 +101,12 @@ limitations, dismissed review findings with their evidence, relevant
   (`type(scope): subject`). The commit-msg hook runs on neither GitHub's
   squash commit nor `but commit`, so the title and the branch commit
   subjects are both checked by eye.
+- `but pr new -F <file>` and `-m <message>` both take the **first line as the
+  title** and the rest as the body. Once the template's guidance comments are
+  deleted its first line is `## Summary`, so a body built from it titles the
+  PR `## Summary` — which then becomes the mainline subject on squash-merge.
+  Prepend a `type(scope):` line, or use `-t` on a single-commit branch to
+  reuse the commit message.
 - No Claude session links in PR bodies — this overrides the default
   Claude Code PR-body footer. The `Claude-Session` trailer goes in branch
   commit messages instead, reachable via the PR's commits tab (squash
