@@ -69,6 +69,11 @@ description = "Check Swift, markdown, and workflow files"
 # CI sets it empty so zizmor's online audits run there.
 run = [
   "swiftformat --lint .",
+  # No target builds tools/, and the manual checklist now reads axdump's
+  # output — without this a compile error surfaces mid-test, when the tool is
+  # needed. One at a time, because each script is top-level code and cannot
+  # share a compilation; a shared helper added here would need its own step.
+  'for f in tools/*.swift; do [ -e "$f" ] || continue; swiftc -typecheck "$f" || exit 1; done',
   'markdownlint-cli2 "**/*.md"',
   "actionlint",
   "zizmor ${ZIZMOR_FLAGS---offline} .github/workflows",

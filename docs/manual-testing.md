@@ -12,6 +12,16 @@ become strings you can read rather than questions you answer from memory.
 Transient surfaces need the dump run while they are up; the refusal toast
 clears after four seconds.
 
+Selection state reads correctly from a terminal dump even though running
+axdump takes key away from the panel — checked 2026-08-11 on macOS 26.5 by
+selecting all in the composer and dumping from the terminal, which still
+reported the full range. Re-check it the same way if a `sel=` item ever fails
+in a way that smells like the instrument rather than the app.
+
+What the range will not do is track your own typing: it reports what the app
+last set, so read it before editing the field, not after. Assertions about a
+caret the app just placed are sound; assertions about one you moved are not.
+
 ## Permissions
 
 - [ ] `tccutil reset Accessibility com.oakoss.Pewter` and
@@ -652,6 +662,50 @@ an AX answer delivers plain text that passes through untouched.
 - [ ] With the file unreadable, type in the composer and press Return → the
       text stays in the field *and* the composer keeps focus, so Return can
       be pressed again once the file is repaired
+- [ ] After that refusal, the caret sits at the *end* of the kept draft with
+      nothing selected: `swift tools/axdump.swift --grep panel.composer`
+      reads `sel=(N,0)`, N being the draft's *UTF-16* length — type plain
+      ASCII and it is the character count. Anything else fails: `(0,N)` is
+      the original bug, `(0,0)` on a non-empty draft is a caret at the
+      start, the `sel=«…»` forms mean the range could not be read, and no
+      `sel=` at all means axdump's role gate did not recognise the composer
+      — a tooling gap, not a caret bug. Then type one character: it appends
+      and the draft is intact, which is the symptom the fix exists for and
+      the only check that survives the whole instrument chain failing. Dump
+      before typing: the reported range is what the app last set, and it
+      does not reliably follow your own edits — a dump taken afterwards can
+      still read the pre-typing figure. The collapse hangs off the refusal
+      rather than its cause, so the reason does not matter here
+- [ ] The same, with the search field left holding the *same* text as the
+      draft: search for a phrase, get no match, then **click** into the
+      composer and type that phrase. Not Cmd+N — that clears the query and
+      silently turns this back into the ordinary case. Dump with
+      `--grep panel.` and read both fields: `panel.composer` is `sel=(N,0)`
+      and the search field is untouched. One shared field editor serves
+      both, and identical text defeats the draft check, so focus is the only
+      thing keeping the collapse on the right field. The log cannot catch a
+      miss here — it would report `collapsed: (N,0)` for the *search* field,
+      and identical text makes that range indistinguishable from a pass — so
+      the dump is the only witness
+- [ ] Refuse a draft, dismiss with Esc, summon again → the draft is still
+      there. Clear the search field first, or Esc clears the filter instead
+      of hiding. This does not test the hidden-panel lookup — the collapse
+      finishes within 60ms of Return, far quicker than a key can follow it,
+      so that branch is not reachable by hand
+- [ ] The same refusal with a pasted draft long enough to scroll the
+      five-line composer — 20 numbered lines of a few words each. The last
+      line is on screen with the caret after it, no scrolling needed.
+      Whether it is *visible* is eye-only — a range says nothing about what
+      is on screen, and `value=` truncates at 60 characters — but dump it
+      anyway and keep the `sel=` figure for the log item below
+- [ ] None of the above logged `refusal caret collapse failed`, and each one
+      logged `refusal caret collapsed: (N,0)` matching the `sel=` its dump
+      reported — Copy Diagnostics includes debug entries, so the successes
+      are readable there too, not just the failures. Redo one refusal immediately before
+      reading: the window is the last ten minutes of *this* process, so a
+      slow pass through the items above or any relaunch leaves an empty
+      report that would pass by construction. Not `mise run logs` — a live
+      tail with no backfill shows nothing whatever the app recorded
 - [ ] Re-save an unreadable (non-UTF8) notes file as UTF-8 in an editor while
       the app runs → the panel recovers on its own via the watcher, with no
       summon needed; this is the repair the watcher can see

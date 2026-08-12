@@ -1,7 +1,7 @@
 #!/usr/bin/env swift
 
 // Dumps a running app's accessibility tree: role, identifier, label, value,
-// and selection state, indented by depth.
+// caret/selection range, and selection state, indented by depth.
 //
 // This is the diagnostic that localized three VoiceOver bugs which behaviour
 // alone could not — roleless elements, labels propagating onto children, and a
@@ -89,6 +89,37 @@ func string(_ element: AXUIElement, _ attribute: String) -> String? {
     return nil
 }
 
+/// The selected *range*, not the selected text: a collapsed caret selects no
+/// text at all, so text alone cannot tell "nothing is selected" apart from
+/// "this element has no selection to report". The location carries the other
+/// half — where the caret actually sits.
+///
+/// Never silent: the caller asks only about roles that should carry a range,
+/// so every failure here is an anomaly and absence would be read as "nothing
+/// is selected" — signing off a caret assertion this never actually made.
+func selectedRange(_ element: AXUIElement) -> String {
+    var value: CFTypeRef?
+    switch AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value) {
+    case .success: break
+    case .attributeUnsupported: return "«unsupported»"
+    case let status: return "«unreadable: \(status.rawValue)»"
+    }
+    guard let value, CFGetTypeID(value) == AXValueGetTypeID() else { return "«not an AXValue»" }
+    // The type id above is what makes this cast safe; AXValue is a CF type,
+    // so a conditional cast here would not do the checking for us.
+    let axValue = value as! AXValue
+    var range = CFRange()
+    guard AXValueGetValue(axValue, .cfRange, &range) else {
+        return "«not a range: type \(AXValueGetType(axValue).rawValue)»"
+    }
+    return "(\(range.location),\(range.length))"
+}
+
+/// Roles whose selection is worth printing. Everything else — menus, groups,
+/// the menu bar — answers the query with (0,0), which on every line buries the
+/// one a caret assertion is read from.
+let textRoles: Set<String> = [kAXTextFieldRole, kAXTextAreaRole, kAXComboBoxRole]
+
 func children(_ element: AXUIElement) -> [AXUIElement] {
     var value: CFTypeRef?
     guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value) == .success,
@@ -101,7 +132,8 @@ func children(_ element: AXUIElement) -> [AXUIElement] {
 /// it is the handle automation queries by, and the whole reason to read this.
 func describe(_ element: AXUIElement) -> String {
     var parts: [String] = []
-    parts.append(string(element, kAXRoleAttribute as String) ?? "«no role»")
+    let role = string(element, kAXRoleAttribute as String)
+    parts.append(role ?? "«no role»")
     if let id = string(element, kAXIdentifierAttribute as String) {
         parts.append("id=\(id)")
     }
@@ -112,6 +144,11 @@ func describe(_ element: AXUIElement) -> String {
     }
     if let value = string(element, kAXValueAttribute as String) {
         parts.append("value=\(value.prefix(60).debugDescription)")
+    }
+    // Keyed on role, not on having a value: an empty field would otherwise
+    // report no selection at all, which is the silence this prints to avoid.
+    if let role, textRoles.contains(role) {
+        parts.append("sel=\(selectedRange(element))")
     }
     if string(element, kAXSelectedAttribute as String) == "1" {
         parts.append("SELECTED")
