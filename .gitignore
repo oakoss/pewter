@@ -35,4 +35,4 @@ xcuserdata/
 # from here: bd writes gate files beside the root they guard, so guarding
 # .beads puts this one alongside the directory rather than inside it, out of
 # reach of .beads/.gitignore.
-.beads.gate.lock
+/.beads.gate.lock
