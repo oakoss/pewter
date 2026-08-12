@@ -1,3 +1,4 @@
+import os
 import PewterCore
 import SwiftUI
 
@@ -556,8 +557,122 @@ struct PanelRootView: View {
                     break
                 case let .refused(reason):
                     uiState.showToast(reason.refusalMessage, severity: .refusal)
+                    // TextSelection would collapse this in SwiftUI directly,
+                    // but needs macOS 15.
+                    collapseRefusedDraftSelection()
                 }
             }
+    }
+
+    /// Why the caret could not be left collapsed at the end of the draft.
+    /// Content-free by construction: these reach the log, which Copy
+    /// Diagnostics renders verbatim, so no case may carry the draft or the
+    /// editor's text.
+    private enum ComposerCollapseFailure: String, Error {
+        case noPanel
+        case notATextView
+        case notAFieldEditor
+        case notFocused
+        case draftMismatch
+        /// Only from the closing report; the lookup never returns it.
+        case reselected
+    }
+
+    /// Moves the caret to the end of the kept draft after a refusal: collapse
+    /// on each of three runloop hops, then report what the user was left with.
+    ///
+    /// The hops span real time — 23–56ms end to end across drafts of 6 to 722
+    /// characters — so they do give SwiftUI's focus restore room to land, and
+    /// it landed inside them every time. They are still a bet on that window,
+    /// which is why the outcome is logged rather than assumed: if
+    /// `refusal caret collapse failed: reselected` ever appears in the field,
+    /// the restore is landing later than these hops and the answer is to
+    /// observe `NSTextView.didChangeSelectionNotification`, not to add a
+    /// fourth hop.
+    ///
+    /// It relies on submit having resigned first responder (see the composer's
+    /// `onSubmit`): that is what stops the closing read from passing against a
+    /// caret the restore has not touched yet.
+    private func collapseRefusedDraftSelection(attemptsLeft: Int = 3) {
+        DispatchQueue.main.async {
+            collapseComposerSelection()
+            DispatchQueue.main.async {
+                guard attemptsLeft > 1 else {
+                    reportCollapseOutcome()
+                    return
+                }
+                collapseRefusedDraftSelection(attemptsLeft: attemptsLeft - 1)
+            }
+        }
+    }
+
+    /// Every failure is an error: the whole sequence spans tens of
+    /// milliseconds (23–56ms measured), far faster than any keystroke, so
+    /// surviving it means first responder never came back rather than that
+    /// the user moved on.
+    ///
+    /// The range goes with it. An accessibility dump can read the caret too,
+    /// but only while the app is running and the panel is up; the log is what
+    /// survives to a bug report. Two integers carry no note content.
+    private func reportCollapseOutcome() {
+        switch composerEditor() {
+        case let .failure(reason):
+            Logger.panel.error(
+                "refusal caret collapse failed: \(reason.rawValue, privacy: .public)"
+            )
+        case let .success(editor):
+            let selection = editor.selectedRange
+            let range = "(\(selection.location),\(selection.length))"
+            guard selection.length == 0,
+                  selection.location == (editor.string as NSString).length
+            else {
+                Logger.panel.error(
+                    """
+                    refusal caret collapse failed: \
+                    \(ComposerCollapseFailure.reselected.rawValue, privacy: .public) \
+                    at \(range, privacy: .public)
+                    """
+                )
+                return
+            }
+            Logger.panel.debug("refusal caret collapsed: \(range, privacy: .public)")
+        }
+    }
+
+    private func collapseComposerSelection() {
+        guard case let .success(editor) = composerEditor() else { return }
+        let end = (editor.string as NSString).length
+        editor.selectedRange = NSRange(location: end, length: 0)
+        editor.scrollRangeToVisible(editor.selectedRange)
+    }
+
+    /// The composer's field editor, or why it could not be reached.
+    ///
+    /// The panel is found by type rather than `keyWindow`, which is nil
+    /// whenever this non-activating panel is not key. `isFieldEditor` rules
+    /// out a standalone text view but not the sibling fields — one shared
+    /// field editor serves search, the row editor and the composer alike — so
+    /// the focus state is what discriminates, with the draft match as a
+    /// staleness check. The backing control's accessibility identifier looks
+    /// like a stronger anchor and is not: it is only reachable when focus
+    /// already says the composer owns the editor.
+    private func composerEditor() -> Result<NSTextView, ComposerCollapseFailure> {
+        guard let panel = NSApp.windows.first(where: { $0 is FloatingPanel }) else {
+            return .failure(.noPanel)
+        }
+        guard let editor = panel.firstResponder as? NSTextView else {
+            return .failure(.notATextView)
+        }
+        guard editor.isFieldEditor else {
+            return .failure(.notAFieldEditor)
+        }
+        guard focus == .quickAdd else {
+            return .failure(.notFocused)
+        }
+        guard editor.string == draft else {
+            return .failure(.draftMismatch)
+        }
+        return .success(editor)
     }
 
     /// Placeholder text and hint move together: a field that still invites a
