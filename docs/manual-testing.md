@@ -683,7 +683,8 @@ an AX answer delivers plain text that passes through untouched.
         field", NOT "try again" — there is nothing left to retry against
   - [ ] The same, but with something already typed in the composer first →
         the rescued edit is appended below a blank line and the toast reads
-        "…was added to your draft". They become one note on Return, since
+        "That note is gone — your edit was added to your draft". They
+        become one note on Return, since
         the composer never splits on newlines; the blank line is what makes
         the seam visible enough to split by hand
 - [ ] Undo and redo under an adoption say something different on purpose:
