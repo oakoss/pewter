@@ -1,0 +1,105 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+
+reviews:
+  # A Minor nit blocked a merge on #79, because the ruleset requires review
+  # threads to be resolved.
+  profile: quiet
+
+  # An agent interaction log, rewritten in nearly every commit and read as a
+  # source diff otherwise. An exclusion-only list stays a blocklist — anything
+  # unmatched is still reviewed.
+  path_filters:
+    - "!.beads/interactions.jsonl"
+
+  # Writes into the PR description, which fires pull_request.edited, which
+  # cancels the in-flight run and burns a second macOS build.
+  # A body containing the `@coderabbitai summary` placeholder still gets one
+  # regardless of this setting.
+  high_level_summary: false
+
+  # Walkthrough contents. The repo already runs its own review cycle before
+  # anything is pushed, so this would duplicate a conclusion already reached.
+  review_status: false
+  changed_files_summary: false
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  assess_linked_issues: false
+  related_issues: false
+  related_prs: false
+  suggested_labels: false
+  suggested_reviewers: false
+  in_progress_fortune: false
+
+  # "off" is quoted because YAML 1.1 reads bare off as false, and the schema
+  # wants the string. `title` would duplicate the commitlint CI job, less
+  # reliably. No docstring policy exists, and issues live in beads rather than
+  # linked GitHub issues. `description` is the one real trade — nothing else
+  # checks the PR body, which squash-merge makes permanent history; kept off
+  # for quiet, tracked in pw-tmf.
+  pre_merge_checks:
+    title:
+      mode: "off"
+    description:
+      mode: "off"
+    docstrings:
+      mode: "off"
+    issue_assessment:
+      mode: "off"
+
+  # CodeRabbit writing code into the repo, bypassing the review cycle.
+  finishing_touches:
+    autofix:
+      enabled: false
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+    fix_ci:
+      enabled: false
+    resolve_merge_conflict:
+      enabled: false
+
+  tools:
+    # Fully covered: lefthook pre-commit fixes markdown and checks workflows on
+    # staged files, and CI's Lint step runs the full `mise run lint` on the
+    # required path — the hook is bypassable with --no-verify, CI is the gate.
+    # CI also clears ZIZMOR_FLAGS to add the online audits the default
+    # --offline run skips; the pre-push zizmor-online hook attempts the same
+    # but exits 0 with a warning when there is no token, so CI is the only
+    # guaranteed online pass.
+    markdownlint:
+      enabled: false
+    zizmor:
+      enabled: false
+    # Prose grammar, which this repo does not gate on. It did not cause the
+    # #79 nit — that was an LLM finding, and `profile` is its lever, not this.
+    languagetool:
+      enabled: false
+    # Declined, not deferred: this repo formats Swift with swiftformat and has
+    # never adopted swiftlint — CONTRIBUTING.md says so ("one auto-formatter").
+    # With no .swiftlint.yml to read, enabling it would impose default rules
+    # the code does not follow.
+    swiftlint:
+      enabled: false
+    # Kept on, unlike its neighbours: actionlint only shellchecks workflow
+    # `run:` blocks when a shellcheck binary is on PATH, and shellcheck is not
+    # pinned in mise.toml — so the local run silently skips that half on any
+    # machine Homebrew hasn't already covered, and on the CI runner.
+    actionlint:
+      enabled: true
+    # Nothing local scans for secrets.
+    gitleaks:
+      enabled: true
+    # Near-dormant: the only tracked shell is bd's extensionless hook shims
+    # under .beads/hooks. Left on so the first real script is covered without
+    # anyone having to remember this file.
+    shellcheck:
+      enabled: true
+    # Nothing lints lefthook.yml or project.yml, which drive every git hook
+    # and the Xcode project — a real gap, but this is the wrong lever for it.
+    # The tool exposes only `enabled`, and stock defaults report 40 findings
+    # across the 9 YAML files here: `truthy` rejects the `on:` key Actions
+    # requires, `document-start` wants `---` everywhere, `line-length` is 80.
+    # Closing the gap needs a tuned .yamllint pinned locally — see pw-1g2.
+    yamllint:
+      enabled: false
