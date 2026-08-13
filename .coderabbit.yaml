@@ -11,8 +11,11 @@ reviews:
   path_filters:
     - "!.beads/interactions.jsonl"
 
-  # Writes into the PR description, which fires pull_request.edited, which
-  # cancels the in-flight run and burns a second macOS build.
+  # Rewrites the PR description, which squash-merge makes the permanent
+  # mainline commit message — its release-notes block had to be stripped by
+  # hand before merging #79. It also fires pull_request.edited, which since
+  # the commit-message split reaches only a seconds-long ubuntu check, not the
+  # macOS build — so history, not build cost, is what this setting buys now.
   # A body containing the `@coderabbitai summary` placeholder still gets one
   # regardless of this setting.
   high_level_summary: false
