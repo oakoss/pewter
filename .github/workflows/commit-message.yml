@@ -1,0 +1,74 @@
+name: Commit message
+
+# Split out of ci.yml so a PR description edit cannot reach the build. The PR
+# title is the mainline subject on squash-merge and is mutable without touching
+# the SHA, so this gate has to re-run on `edited` — but `edited` also fires on
+# body and base changes, and Renovate rewrites its grouped PR bodies. Leaving
+# both jobs in one workflow meant every one of those rewrites re-ran a ~2 min
+# macOS build. Skipping that build's steps instead would be worse: an
+# all-steps-skipped job concludes `success`, so a body edit could turn a red
+# CI Summary green and make failing code mergeable. Separating the workflows
+# means a body edit re-runs only this check, and CI Summary keeps the verdict
+# it earned on the code.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+
+# No `|| github.run_id` fallback like ci.yml needs: this workflow is
+# pull_request-only, so the number is always populated. Adding any non-PR
+# trigger would collapse those runs into one group and must revisit this.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  commit-message:
+    name: Commit message
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history: the branch-subject lint below walks base..head, which
+          # the default shallow fetch cannot resolve.
+          fetch-depth: 0
+
+      - name: Install tools
+        uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
+        with:
+          # This gate needs only node and commitlint; a default install would
+          # couple a seconds-long check to every tool in mise.toml.
+          install_args: node npm:commitlint
+
+      - name: Load the commit policy from the base
+        # The checkout is the PR merge ref, so both commitlint runs below would
+        # otherwise discover a .commitlintrc.yml the PR itself can weaken.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: git show "$BASE_SHA:.commitlintrc.yml" >"$RUNNER_TEMP/commitlint.yml"
+
+      - name: Lint PR title
+        # Squash-merge makes the title the mainline subject, and no local hook
+        # can reach GitHub's squash commit — this is its only gate.
+        # Read through env, never `${{ }}` in run: the title is user input.
+        # Default ignores are kept, matching the local commit-msg hook: they
+        # let `Revert "..."` through, which is what GitHub's revert button
+        # generates, and reverts should not need a retitle to land.
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PR_TITLE" | commitlint --config "$RUNNER_TEMP/commitlint.yml"
+
+      - name: Lint branch commit subjects
+        # Squashed away rather than landing on main, but they stay reachable
+        # via the PR's commits tab, and the local commit-msg hook can be
+        # bypassed with --no-verify.
+        # Explicit SHAs from the payload, not refs: the checkout is the merge
+        # ref, whose HEAD is neither side of the range.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --config "$RUNNER_TEMP/commitlint.yml"

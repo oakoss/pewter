@@ -23,11 +23,20 @@ sync hook; commit-msg enforces Conventional Commits via commitlint
 (`type(scope): subject`); the scope list in `.commitlintrc.yml` feeds czg's
 prompt, not the linter. Pre-push runs the Core tests.
 
-CI re-checks commit messages on every PR: the `commit-message` job lints the
-PR title, which squash-merge makes the mainline subject and which no local
+CI re-checks commit messages on every PR: the `commit-message` workflow lints
+the PR title, which squash-merge makes the mainline subject and which no local
 hook can reach, and the branch's commit subjects, where the local commit-msg
 hook can be bypassed with `--no-verify`. Both run against the policy read from
 the base branch rather than the PR's own copy.
+
+It is a separate workflow, and a second required check alongside `CI Summary`,
+because the title is mutable without touching the SHA — so the gate has to
+re-run on `pull_request.edited`, which also fires on body and base edits. Kept
+in `ci.yml`, every Renovate description rewrite re-ran the macOS build; making
+that build skip its steps instead would be worse, since an all-steps-skipped
+job concludes `success` and a body edit could then turn a red `CI Summary`
+green. Splitting them means a body edit re-runs only the cheap check and
+`CI Summary` keeps the verdict it earned on the code.
 
 ## Architecture Overview
 
@@ -68,7 +77,7 @@ limitations, dismissed review findings with their evidence, relevant
   the template.
 - The PR title is the commit subject: it must satisfy commitlint
   (`type(scope): subject`). No local hook can reach GitHub's squash commit,
-  so the `commit-message` CI job is what enforces it.
+  so the `commit-message` workflow is what enforces it.
 - No Claude session links in PR bodies — this overrides the default
   Claude Code PR-body footer. The `Claude-Session` trailer goes in branch
   commit messages instead, reachable via the PR's commits tab (squash
