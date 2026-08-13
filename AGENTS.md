@@ -25,9 +25,9 @@ prompt, not the linter. Pre-push runs the Core tests.
 
 CI re-checks commit messages on every PR: the `commit-message` job lints the
 PR title, which squash-merge makes the mainline subject and which no local
-hook can reach, and the branch's commit subjects, which the local commit-msg
-hook can be bypassed on with `--no-verify`. Both run against the policy read
-from the base branch rather than the PR's own copy.
+hook can reach, and the branch's commit subjects, where the local commit-msg
+hook can be bypassed with `--no-verify`. Both run against the policy read from
+the base branch rather than the PR's own copy.
 
 ## Architecture Overview
 
