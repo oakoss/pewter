@@ -8,10 +8,12 @@ on:
     # leaving the last draft run as the merge-blocking result. edited so a
     # title changed after a green run re-runs it: the title is the mainline
     # subject and is mutable without touching the SHA, so without this the
-    # commit-message gate is bypassable. Body and base edits fire it too, and
-    # CodeRabbit edits the body seconds after every PR opens — so expect one
-    # extra build-and-test (~2 min) per PR, and a red CI Summary on the run
-    # that gets cancelled, which is superseded rather than a real failure.
+    # commit-message gate is bypassable. Body and base edits fire it too, so
+    # any bot that rewrites a description costs an extra build-and-test (~2
+    # min) and a red CI Summary on the cancelled run, superseded rather than a
+    # real failure. .coderabbit.yaml turns off CodeRabbit's summary write (a
+    # body carrying the @coderabbitai summary placeholder still gets one);
+    # Renovate still rewrites its grouped PRs — see pw-92q.
     types: [opened, synchronize, reopened, ready_for_review, edited]
 
 # The default token is write-scoped org-wide; with read-only permissions a
