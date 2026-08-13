@@ -17,48 +17,17 @@ mise run logs     # tail the app's unified-logging output
 ```
 
 Git hooks are managed by lefthook (`lefthook install` after clone; tools come
-from `mise.toml`). On a `git commit` from a non-workspace branch, pre-commit
-runs swiftformat on staged Swift, markdownlint on staged markdown, actionlint
-and zizmor on staged workflows, and the beads sync hook; commit-msg enforces
-Conventional Commits via commitlint (`type(scope): subject`); the scope list
-in `.commitlintrc.yml` feeds czg's prompt, not the linter. Pre-push runs the
-Core tests.
+from `mise.toml`). Pre-commit runs swiftformat on staged Swift, markdownlint
+on staged markdown, actionlint and zizmor on staged workflows, and the beads
+sync hook; commit-msg enforces Conventional Commits via commitlint
+(`type(scope): subject`); the scope list in `.commitlintrc.yml` feeds czg's
+prompt, not the linter. Pre-push runs the Core tests.
 
-This repo is GitButler-managed: HEAD stays on `gitbutler/workspace`, where a
-guard shim blocks plain `git commit`, so commits are made with `but commit` —
-**which runs no git hooks at all**. pre-commit, prepare-commit-msg, and
-commit-msg are all skipped. Verified locally on `but` 0.22.0 with the desktop
-app's "Run Git hooks" both off and on; no setting changes it. (Upstream issue
-gitbutlerapp/gitbutler#12748 covers GitButler displacing `pre-commit` and
-`post-checkout` into the `-user` shims this repo now has — related, but not
-this.) So:
-
-- Run `mise run format` before `but commit`, plus `mise run lint` if you
-  touched `.github/workflows/` — the actionlint and zizmor audits pre-commit
-  used to run are not in `format`. Otherwise CI is the first thing to tell
-  you the tree is unformatted.
-- Nothing checks commit messages any more: not the hook, and CI has no
-  commitlint job. Write `type(scope): subject` by hand against the scopes in
-  `.commitlintrc.yml`.
-- `but push` and `but pr new` still run pre-push — both expose `--no-hooks`,
-  and GitButler leaves `pre-push` unwrapped. Measured: a `but push` took 13s
-  and rewrote `Core/.build`, so `swift test` ran inside it. `bd dolt push`
-  stays best-effort regardless; see the sync note below.
-- `lefthook install` — the documented post-clone step above — overwrites
-  GitButler's `pre-commit` *and* `post-checkout` guards, renaming each to
-  `<hook>.old`. It prints the renames, so the risk is missing the line, not
-  an absent one. Restore with
-  `mv -f .git/hooks/pre-commit.old .git/hooks/pre-commit` and the same for
-  `post-checkout`.
-- Editing `lefthook.yml` arms that same displacement for later. The generated
-  hooks carry no sync logic themselves, but they call `lefthook run`, which
-  reinstalls whenever the config stops matching `.git/info/lefthook.checksum`
-  (hence `lefthook run --no-auto-install`). `but commit` runs no hooks, so
-  the trigger you will actually hit is pre-push: the next `but push` or
-  `but pr new` prints the same `Renamed` lines and needs the same restore.
-  `post-merge` and `post-checkout` call `lefthook run` bare too, so a pull
-  or a checkout can fire it as well. Measured on lefthook 2.1.10; both
-  wrapped hooks go, since `lefthook.yml` defines jobs for both.
+CI re-checks commit messages on every PR: the `commit-message` job lints the
+PR title, which squash-merge makes the mainline subject and which no local
+hook can reach, and the branch's commit subjects, which the local commit-msg
+hook can be bypassed on with `--no-verify`. Both run against the policy read
+from the base branch rather than the PR's own copy.
 
 ## Architecture Overview
 
@@ -98,27 +67,17 @@ limitations, dismissed review findings with their evidence, relevant
   template's guidance comments. The canonical don't-include list lives in
   the template.
 - The PR title is the commit subject: it must satisfy commitlint
-  (`type(scope): subject`). The commit-msg hook runs on neither GitHub's
-  squash commit nor `but commit`, so the title and the branch commit
-  subjects are both checked by eye.
-- `but pr new -F <file>` and `-m <message>` both take the **first line as the
-  title** and the rest as the body. Once the template's guidance comments are
-  deleted its first line is `## Summary`, so a body built from it titles the
-  PR `## Summary` — which then becomes the mainline subject on squash-merge.
-  Prepend a `type(scope):` line, or use `-t` on a single-commit branch to
-  reuse the commit message.
+  (`type(scope): subject`). No local hook can reach GitHub's squash commit,
+  so the `commit-message` CI job is what enforces it.
 - No Claude session links in PR bodies — this overrides the default
   Claude Code PR-body footer. The `Claude-Session` trailer goes in branch
   commit messages instead, reachable via the PR's commits tab (squash
   keeps it out of mainline).
-- After merging changes that affect App-layer behavior, unapply every applied
-  branch (`but unapply <branch>`), then `but pull`, and confirm with
-  `but status` that nothing is applied before `mise run run`, so the
-  `docs/manual-testing.md` checklist runs against the merged binary. Order
-  matters: `but pull` rebases the applied branches, so pulling first leaves
-  you testing main plus those branches, not main. If `open` fails with
-  LaunchServices error -600, the shell is sandboxed — run the launch step
-  unsandboxed.
+- After merging changes that affect App-layer behavior, switch back and update
+  (`git checkout main && git pull --ff-only`) before `mise run run`, so the
+  `docs/manual-testing.md` checklist runs against the merged binary, not a
+  stale per-branch build. If `open` fails with LaunchServices error -600, the
+  shell is sandboxed — run the launch step unsandboxed.
 - Watch PR checks with one background command instead of timed re-checks:
   `sleep 20 && gh pr checks <number> --watch --fail-fast` (exit 0 = all
   pass; exit 1 = a check failed *or* gh errored — read the output before

@@ -112,10 +112,9 @@ jobs:
         run: printf '%s\n' "$PR_TITLE" | commitlint --config "$RUNNER_TEMP/commitlint.yml"
 
       - name: Lint branch commit subjects
-        # `but commit` skips commit-msg, so these reach the branch unchecked
-        # even though the local hook would have caught them. They are squashed
-        # away rather than landing on main, but stay reachable via the PR's
-        # commits tab.
+        # Squashed away rather than landing on main, but they stay reachable
+        # via the PR's commits tab, and the local commit-msg hook can be
+        # bypassed with --no-verify.
         # Explicit SHAs from the payload, not refs: the checkout is the merge
         # ref, whose HEAD is neither side of the range.
         if: github.event_name == 'pull_request'
