@@ -9,7 +9,7 @@ mise run gen      # regenerate Pewter.xcodeproj from project.yml (xcodegen)
 mise run build    # build the app (pass-through signing via mise.local.toml)
 mise run test     # Core unit tests: swift test --package-path Core
 mise run format   # swiftformat + markdownlint --fix
-mise run lint     # swiftformat, markdownlint, actionlint, zizmor
+mise run lint     # swiftformat, markdownlint, actionlint, zizmor, yamllint
 mise run ci       # lint + test + build in parallel (pre-push check)
 mise run icon     # re-render AppIcon PNGs from App/AppIcon.svg
 mise run run      # build and relaunch
@@ -18,10 +18,11 @@ mise run logs     # tail the app's unified-logging output
 
 Git hooks are managed by lefthook (`lefthook install` after clone; tools come
 from `mise.toml`). Pre-commit runs swiftformat on staged Swift, markdownlint
-on staged markdown, actionlint and zizmor on staged workflows, and the beads
-sync hook; commit-msg enforces Conventional Commits via commitlint
-(`type(scope): subject`); the scope list in `.commitlintrc.yml` feeds czg's
-prompt, not the linter. Pre-push runs the Core tests.
+on staged markdown, actionlint and zizmor on staged workflows, yamllint on
+staged YAML, and the beads sync hook; commit-msg enforces Conventional
+Commits via commitlint (`type(scope): subject`); the scope list in
+`.commitlintrc.yml` feeds czg's prompt, not the linter. Pre-push runs the
+Core tests.
 
 CI re-checks commit messages on every PR: the `commit-message` workflow lints
 the PR title, which squash-merge makes the mainline subject and which no local

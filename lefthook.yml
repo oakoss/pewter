@@ -21,6 +21,12 @@ pre-commit:
     lint-workflows:
       glob: '.github/workflows/*.yml'
       run: actionlint {staged_files} && zizmor --offline {staged_files}
+    # Every YAML file, workflows included, not only the ones actionlint reads:
+    # lefthook.yml and project.yml drive every git hook and the Xcode project,
+    # and nothing else checks them.
+    lint-yaml:
+      glob: '*.{yml,yaml}'
+      run: yamllint {staged_files}
     beads:
       run: .beads/hooks/pre-commit {0}
 

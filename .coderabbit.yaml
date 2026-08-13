@@ -84,12 +84,13 @@ reviews:
     # the code does not follow.
     swiftlint:
       enabled: false
-    # Kept on, unlike its neighbours: actionlint only shellchecks workflow
-    # `run:` blocks when a shellcheck binary is on PATH, and shellcheck is not
-    # pinned in mise.toml — so the local run silently skips that half on any
-    # machine Homebrew hasn't already covered, and on the CI runner.
+    # Was the backstop for a real gap: actionlint only shellchecks `run:`
+    # blocks when shellcheck is on PATH, and it used to be unpinned, so the
+    # local run skipped that half wherever Homebrew had not supplied it — the
+    # CI runner included. shellcheck is pinned in mise.toml now, so both runs
+    # cover it and this is duplication again.
     actionlint:
-      enabled: true
+      enabled: false
     # Nothing local scans for secrets.
     gitleaks:
       enabled: true
@@ -98,11 +99,12 @@ reviews:
     # anyone having to remember this file.
     shellcheck:
       enabled: true
-    # Nothing lints lefthook.yml or project.yml, which drive every git hook
-    # and the Xcode project — a real gap, but this is the wrong lever for it.
-    # The tool exposes only `enabled`, and stock defaults report 40 findings
-    # across the 9 YAML files here: `truthy` rejects the `on:` key Actions
-    # requires, `document-start` wants `---` everywhere, `line-length` is 80.
-    # Closing the gap needs a tuned .yamllint pinned locally — see pw-1g2.
+    # The gap this once named is closed: yamllint is pinned in mise.toml and
+    # runs from `mise run lint` and pre-commit against a tuned .yamllint.
+    # CodeRabbit's copy stays off because it exposes only `enabled` — it would
+    # apply stock defaults, which report 41 findings across the 10 tracked
+    # YAML files here: line-length 16, document-start 10, comments 10,
+    # new-line-at-end-of-file 1, and truthy 4 — three `on:` keys Actions
+    # requires, plus a YES in project.yml.
     yamllint:
       enabled: false
