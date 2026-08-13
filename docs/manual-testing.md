@@ -643,9 +643,12 @@ an AX answer delivers plain text that passes through untouched.
       appearing to work. This needs its own setup — do NOT chain it off the
       `chmod 000` + relaunch above, which loads a placeholder with an empty
       list, leaving no row to click, no selection to delete and no two rows
-      to merge. Instead: with real notes loaded, delete a note and press Cmd+Z
-      so both undo stacks hold a batch, then `chmod 000` the file *without
-      relaunching* and summon the panel, which retries and notices the break.
+      to merge. Instead: with real notes loaded, delete two notes separately,
+      then press Cmd+Z *once* — undo moves a batch from one stack to the
+      other rather than copying it, so a single delete-then-undo would leave
+      the undo stack empty and Cmd+Z below would report nothing to do instead
+      of refusing. Then `chmod 000` the file *without relaunching* and summon
+      the panel, which retries and notices the break.
       Now: click a row's checkbox, Space on a selection, Delete on a
       selection, the context menu's Delete and Mark as Done, Cmd+M on two
       selected rows, Cmd+Z, Cmd+Shift+Z. Each shows the same repair toast the
