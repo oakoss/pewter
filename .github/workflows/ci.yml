@@ -5,8 +5,14 @@ on:
     branches: [main]
   pull_request:
     # ready_for_review so leaving draft state re-runs the gate rather than
-    # leaving the last draft run as the merge-blocking result.
-    types: [opened, synchronize, reopened, ready_for_review]
+    # leaving the last draft run as the merge-blocking result. edited so a
+    # title changed after a green run re-runs it: the title is the mainline
+    # subject and is mutable without touching the SHA, so without this the
+    # commit-message gate is bypassable. Body and base edits fire it too, and
+    # CodeRabbit edits the body seconds after every PR opens — so expect one
+    # extra build-and-test (~2 min) per PR, and a red CI Summary on the run
+    # that gets cancelled, which is superseded rather than a real failure.
+    types: [opened, synchronize, reopened, ready_for_review, edited]
 
 # The default token is write-scoped org-wide; with read-only permissions a
 # compromised dep in any job can't post a forged "CI Summary" status.
@@ -60,6 +66,64 @@ jobs:
           XCODE_SETTINGS: CODE_SIGNING_ALLOWED=NO COMPILER_INDEX_STORE_ENABLE=NO
         run: mise run build
 
+  commit-message:
+    name: Commit message
+    # Every step carries the same `if` rather than the job: a job-level one
+    # reports `skipped`, which ci-summary counts as failure. All-steps-skipped
+    # still concludes `success`, so on main pushes this is a seconds-long
+    # no-op instead of a checkout and install on the required path.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event_name == 'pull_request'
+        with:
+          persist-credentials: false
+          # Full history: the branch-subject lint below walks base..head, which
+          # the default shallow fetch cannot resolve.
+          fetch-depth: 0
+
+      - name: Install tools
+        if: github.event_name == 'pull_request'
+        uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
+        with:
+          # This gate needs only node and commitlint; a default install would
+          # couple a seconds-long check to every tool in mise.toml.
+          install_args: node npm:commitlint
+
+      - name: Load the commit policy from the base
+        # The checkout is the PR merge ref, so both commitlint runs below would
+        # otherwise discover a .commitlintrc.yml the PR itself can weaken.
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: git show "$BASE_SHA:.commitlintrc.yml" >"$RUNNER_TEMP/commitlint.yml"
+
+      - name: Lint PR title
+        # Squash-merge makes the title the mainline subject, and no local hook
+        # can reach GitHub's squash commit — this is its only gate.
+        # Read through env, never `${{ }}` in run: the title is user input.
+        # Default ignores are kept, matching the local commit-msg hook: they
+        # let `Revert "..."` through, which is what GitHub's revert button
+        # generates, and reverts should not need a retitle to land.
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: printf '%s\n' "$PR_TITLE" | commitlint --config "$RUNNER_TEMP/commitlint.yml"
+
+      - name: Lint branch commit subjects
+        # `but commit` skips commit-msg, so these reach the branch unchecked
+        # even though the local hook would have caught them. They are squashed
+        # away rather than landing on main, but stay reachable via the PR's
+        # commits tab.
+        # Explicit SHAs from the payload, not refs: the checkout is the merge
+        # ref, whose HEAD is neither side of the range.
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --config "$RUNNER_TEMP/commitlint.yml"
+
   # Fan-in gate: the one required status check, so the branch ruleset never
   # names individual jobs. Every job in this workflow must be listed in
   # `needs` — an omitted job is invisible to the gate.
@@ -70,7 +134,7 @@ jobs:
     # always(), not !cancelled(): a skipped required check counts as
     # satisfied, so cancellation must yield a red X here, not a skip.
     if: always()
-    needs: [build-and-test]
+    needs: [build-and-test, commit-message]
     steps:
       - name: Summarize results
         run: |
@@ -80,6 +144,7 @@ jobs:
             echo "| Job | Status | Required |"
             echo "| --- | --- | --- |"
             echo "| Build and test | \`${{ needs.build-and-test.result }}\` | ✅ Yes |"
+            echo "| Commit message | \`${{ needs.commit-message.result }}\` | ✅ Yes |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = "true" ]; then
