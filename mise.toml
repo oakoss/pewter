@@ -3,7 +3,13 @@ swiftformat = { version = "0.62.1", no_app = true, rename_exe = "swiftformat" }
 xcodegen = "2.46.0"
 lefthook = "2.1.10"
 actionlint = "1.7.12"
+# actionlint shells out to shellcheck for `run:` blocks and silently skips
+# that half when the binary is absent — proven by running it with and without
+# shellcheck on PATH. Unpinned, it worked only where Homebrew happened to
+# provide it, never on the CI runner.
+shellcheck = "0.11.0"
 zizmor = "1.28.0"
+yamllint = "1.38.0"
 # node backs the npm: tools below; without it a fresh machine can't install them
 node = "24.18.1"
 "npm:markdownlint-cli2" = "0.23.2"
@@ -75,8 +81,18 @@ run = [
   # share a compilation; a shared helper added here would need its own step.
   'for f in tools/*.swift; do [ -e "$f" ] || continue; swiftc -typecheck "$f" || exit 1; done',
   'markdownlint-cli2 "**/*.md"',
+  # actionlint reports nothing when shellcheck is missing — `-shellcheck` with
+  # a nonexistent path still exits 0 — so absence is indistinguishable from a
+  # clean run. Assert it rather than trust the `[tools]` pin to stay put.
+  'command -v shellcheck >/dev/null || { echo "shellcheck missing: actionlint silently skips run: blocks" >&2; exit 1; }',
   "actionlint",
   "zizmor ${ZIZMOR_FLAGS---offline} .github/workflows",
+  # Tracked files only: a bare `yamllint .` walks Core/.build and reports tens
+  # of thousands of findings in generated manifests. -z/xargs so a path with a
+  # space survives. BSD xargs skips the utility entirely on empty input, so a
+  # vanished file list would pass silently — unreachable while lefthook.yml
+  # and project.yml are tracked, and their loss would surface louder than this.
+  "git ls-files -z '*.yml' '*.yaml' | xargs -0 yamllint",
 ]
 
 [tasks."lint:online"]

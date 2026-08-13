@@ -1,0 +1,20 @@
+extends: default
+
+# bd-managed, not ours to lint — and it stages config.yaml during a commit,
+# so linting it could block a commit on a file no one here controls.
+# .markdownlint-cli2.yaml ignores this directory for the same reason.
+ignore: |
+  .beads/
+
+rules:
+  # The repo wraps prose at 80 but lets keys, URLs and shell run away.
+  line-length: disable
+  # No `---` anywhere here, and adding it to nine files buys nothing.
+  document-start: disable
+  comments:
+    min-spaces-from-content: 1
+  truthy:
+    # GitHub Actions requires the `on:` key, which yamllint reads as boolean.
+    check-keys: false
+    # Xcode build settings in project.yml take YES/NO, not true/false.
+    allowed-values: ['true', 'false', 'YES', 'NO']
