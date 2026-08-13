@@ -188,16 +188,12 @@ public struct MarkdownDocument: Equatable, Sendable {
         return removed
     }
 
-    @discardableResult
-    public mutating func setDone(ids: Set<UUID>, done: Bool) -> Bool {
-        var changed = false
+    public mutating func setDone(ids: Set<UUID>, done: Bool) {
         for index in lines.indices {
             guard case var .item(item) = lines[index], ids.contains(item.id), item.done != done else { continue }
             item.done = done
             lines[index] = .item(item)
-            changed = true
         }
-        return changed
     }
 
     private func index(of id: UUID) -> Int? {

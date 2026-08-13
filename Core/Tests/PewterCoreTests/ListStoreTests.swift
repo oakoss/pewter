@@ -21,14 +21,14 @@ final class ResumeOnce: @unchecked Sendable {
 struct ListStoreTests {
     @Test func addTrimsAndRejectsEmpty() {
         let store = ListStore()
-        // Matched rather than unwrapped via `.item`: this test is about `add`
-        // itself, and `.item` is for tests whose subject is what comes after.
-        guard case let .added(item) = store.add(text: "  hello  ") else {
+        // Matched rather than unwrapped via `.product`: this test is about `add`
+        // itself, and `.product` is for tests whose subject is what comes after.
+        guard case let .applied(item) = store.add(text: "  hello  ") else {
             Issue.record("expected the add to land")
             return
         }
         #expect(item.text == "hello")
-        #expect(store.add(text: "   \n ") == .emptyText)
+        #expect(store.add(text: "   \n ") == .unchanged)
         #expect(store.items.count == 1)
     }
 
@@ -52,31 +52,31 @@ struct ListStoreTests {
         // Whitespace on a broken file is still nothing to add: naming a repair
         // for text that was never going to be stored sends the user to fix
         // something that would not have helped.
-        #expect(store.add(text: "   ") == .emptyText)
+        #expect(store.add(text: "   ") == .unchanged)
         #expect(store.items.isEmpty)
     }
 
     @Test func toggleAndDelete() throws {
         let store = ListStore()
-        let item = try #require(store.add(text: "toggle me").item)
+        let item = try #require(store.add(text: "toggle me").product)
 
-        store.toggleDone(ids: [item.id])
+        _ = store.toggleDone(ids: [item.id])
         #expect(store.items[0].done == true)
-        store.toggleDone(ids: [item.id])
+        _ = store.toggleDone(ids: [item.id])
         #expect(store.items[0].done == false)
 
-        store.delete(ids: [item.id])
+        _ = store.delete(ids: [item.id])
         #expect(store.items.isEmpty)
     }
 
     @Test func mergeJoinsInDocumentOrderAtFirstPosition() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "first").item)
-        let b = try #require(store.add(text: "second").item)
-        let c = try #require(store.add(text: "third").item)
+        let a = try #require(store.add(text: "first").product)
+        let b = try #require(store.add(text: "second").product)
+        let c = try #require(store.add(text: "third").product)
 
         // Set input: document order must win regardless of selection order.
-        let merged = try #require(store.merge(ids: [c.id, a.id]))
+        let merged = try #require(store.merge(ids: [c.id, a.id]).product)
 
         #expect(merged.text == "first\n\nthird")
         #expect(merged.id == a.id)
@@ -87,35 +87,35 @@ struct ListStoreTests {
 
     @Test func mergeIsDoneOnlyWhenAllSourcesWereDone() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "one").item)
-        let b = try #require(store.add(text: "two").item)
+        let a = try #require(store.add(text: "one").product)
+        let b = try #require(store.add(text: "two").product)
 
-        store.setDone(ids: [a.id], done: true)
-        #expect(try #require(store.merge(ids: [a.id, b.id])).done == false)
+        _ = store.setDone(ids: [a.id], done: true)
+        #expect(try #require(store.merge(ids: [a.id, b.id]).product).done == false)
         _ = store.undoDelete()
 
-        store.setDone(ids: [a.id, b.id], done: true)
-        #expect(try #require(store.merge(ids: [a.id, b.id])).done == true)
+        _ = store.setDone(ids: [a.id, b.id], done: true)
+        #expect(try #require(store.merge(ids: [a.id, b.id]).product).done == true)
     }
 
     @Test func mergeRequiresTwoExistingItems() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "alone").item)
-        #expect(store.merge(ids: [a.id]) == nil)
-        #expect(store.merge(ids: [a.id, UUID()]) == nil)
+        let a = try #require(store.add(text: "alone").product)
+        #expect(store.merge(ids: [a.id]) == .unchanged)
+        #expect(store.merge(ids: [a.id, UUID()]) == .unchanged)
         #expect(store.items.count == 1)
     }
 
     @Test func undoAfterMergeRestoresOriginalsExactly() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "keep me").item)
-        let b = try #require(store.add(text: "absorb me").item)
-        let c = try #require(store.add(text: "bystander").item)
-        store.setDone(ids: [b.id], done: true)
+        let a = try #require(store.add(text: "keep me").product)
+        let b = try #require(store.add(text: "absorb me").product)
+        let c = try #require(store.add(text: "bystander").product)
+        _ = store.setDone(ids: [b.id], done: true)
         let before = store.document
 
-        _ = try #require(store.merge(ids: [a.id, b.id]))
-        let restored = store.undoDelete()
+        _ = try #require(store.merge(ids: [a.id, b.id]).product)
+        let restored = try #require(store.undoDelete().product)
 
         #expect(store.document == before)
         #expect(Set(restored.map(\.id)) == Set([a.id, b.id]))
@@ -124,29 +124,29 @@ struct ListStoreTests {
 
     @Test func undoOrderStaysLIFOAcrossMergeAndDelete() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a").item)
-        let b = try #require(store.add(text: "b").item)
-        let c = try #require(store.add(text: "c").item)
+        let a = try #require(store.add(text: "a").product)
+        let b = try #require(store.add(text: "b").product)
+        let c = try #require(store.add(text: "c").product)
         let before = store.document
 
-        _ = try #require(store.merge(ids: [a.id, b.id]))
-        store.delete(ids: [c.id])
+        _ = try #require(store.merge(ids: [a.id, b.id]).product)
+        _ = store.delete(ids: [c.id])
 
-        #expect(store.undoDelete().map(\.id) == [c.id])
+        #expect(store.undoDelete().product?.map(\.id) == [c.id])
         _ = store.undoDelete()
         #expect(store.document == before)
     }
 
     @Test func redoReappliesDeleteExactly() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "stays").item)
-        let b = try #require(store.add(text: "goes").item)
+        let a = try #require(store.add(text: "stays").product)
+        let b = try #require(store.add(text: "goes").product)
 
-        store.delete(ids: [b.id])
+        _ = store.delete(ids: [b.id])
         let afterDelete = store.document
         _ = store.undoDelete()
 
-        let result = try #require(store.redo())
+        let result = try #require(store.redo().product)
         #expect(store.document == afterDelete)
         #expect(result.removed.map(\.id) == [b.id])
         #expect(result.mergedProduct == nil)
@@ -155,14 +155,14 @@ struct ListStoreTests {
 
     @Test func redoReappliesMergeProductExactly() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "one").item)
-        let b = try #require(store.add(text: "two").item)
+        let a = try #require(store.add(text: "one").product)
+        let b = try #require(store.add(text: "two").product)
 
-        let merged = try #require(store.merge(ids: [a.id, b.id]))
+        let merged = try #require(store.merge(ids: [a.id, b.id]).product)
         let afterMerge = store.document
         _ = store.undoDelete()
 
-        let result = try #require(store.redo())
+        let result = try #require(store.redo().product)
         #expect(store.document == afterMerge)
         #expect(result.mergedProduct == merged)
         #expect(Set(result.removed.map(\.id)) == Set([a.id, b.id]))
@@ -171,11 +171,11 @@ struct ListStoreTests {
     @Test func undoRedoUndoRoundTrips() throws {
         // Redo lands back on the undo stack, so Cmd-Z reverses it again.
         let store = ListStore()
-        _ = try #require(store.add(text: "keeper").item)
-        let victim = try #require(store.add(text: "victim").item)
+        _ = try #require(store.add(text: "keeper").product)
+        let victim = try #require(store.add(text: "victim").product)
         let before = store.document
 
-        store.delete(ids: [victim.id])
+        _ = store.delete(ids: [victim.id])
         _ = store.undoDelete()
         _ = store.redo()
         _ = store.undoDelete()
@@ -185,45 +185,45 @@ struct ListStoreTests {
 
     @Test func redoOrderIsLIFOAcrossMergeAndDelete() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a").item)
-        let b = try #require(store.add(text: "b").item)
-        let c = try #require(store.add(text: "c").item)
+        let a = try #require(store.add(text: "a").product)
+        let b = try #require(store.add(text: "b").product)
+        let c = try #require(store.add(text: "c").product)
 
-        _ = try #require(store.merge(ids: [a.id, b.id]))
-        store.delete(ids: [c.id])
+        _ = try #require(store.merge(ids: [a.id, b.id]).product)
+        _ = store.delete(ids: [c.id])
         let afterBoth = store.document
 
         _ = store.undoDelete()
         _ = store.undoDelete()
 
         // Most recently undone replays first: the merge, then the delete.
-        #expect(try #require(store.redo()).mergedProduct?.id == a.id)
-        #expect(try #require(store.redo()).removed.map(\.id) == [c.id])
+        #expect(try #require(store.redo().product).mergedProduct?.id == a.id)
+        #expect(try #require(store.redo().product).removed.map(\.id) == [c.id])
         #expect(store.document == afterBoth)
     }
 
     @Test func freshMutationClearsRedo() throws {
         let store = ListStore()
-        let victim = try #require(store.add(text: "victim").item)
-        store.delete(ids: [victim.id])
+        let victim = try #require(store.add(text: "victim").product)
+        _ = store.delete(ids: [victim.id])
         _ = store.undoDelete()
 
         _ = store.add(text: "fork in history")
 
-        #expect(store.redo() == nil)
+        #expect(store.redo() == .unchanged)
         #expect(store.items.map(\.text) == ["victim", "fork in history"])
     }
 
     @Test func toggleDoneClearsRedo() throws {
         let store = ListStore()
-        let keeper = try #require(store.add(text: "keeper").item)
-        let victim = try #require(store.add(text: "victim").item)
-        store.delete(ids: [victim.id])
+        let keeper = try #require(store.add(text: "keeper").product)
+        let victim = try #require(store.add(text: "victim").product)
+        _ = store.delete(ids: [victim.id])
         _ = store.undoDelete()
 
-        store.toggleDone(ids: [keeper.id])
+        _ = store.toggleDone(ids: [keeper.id])
 
-        #expect(store.redo() == nil)
+        #expect(store.redo() == .unchanged)
         #expect(store.items.count == 2)
     }
 
@@ -233,8 +233,8 @@ struct ListStoreTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        let victim = try #require(store.add(text: "victim").item)
-        store.delete(ids: [victim.id])
+        let victim = try #require(store.add(text: "victim").product)
+        _ = store.delete(ids: [victim.id])
         _ = store.undoDelete()
 
         store.applyExternalChange(
@@ -242,7 +242,7 @@ struct ListStoreTests {
             generation: storage.load().generation
         )
 
-        #expect(store.redo() == nil)
+        #expect(store.redo() == .unchanged)
         #expect(store.items.map(\.text) == ["rewritten outside"])
     }
 
@@ -250,68 +250,68 @@ struct ListStoreTests {
         // Without the clear, redoing the stale batch would no-op its
         // removal and a later undo would duplicate the note.
         let store = ListStore()
-        let a = try #require(store.add(text: "a").item)
-        let b = try #require(store.add(text: "b").item)
-        store.delete(ids: [a.id])
+        let a = try #require(store.add(text: "a").product)
+        let b = try #require(store.add(text: "b").product)
+        _ = store.delete(ids: [a.id])
         _ = store.undoDelete()
 
-        store.delete(ids: [b.id])
+        _ = store.delete(ids: [b.id])
 
-        #expect(store.redo() == nil)
+        #expect(store.redo() == .unchanged)
     }
 
     @Test func updateTextClearsRedo() throws {
         let store = ListStore()
-        let keeper = try #require(store.add(text: "keeper").item)
-        let victim = try #require(store.add(text: "victim").item)
-        store.delete(ids: [victim.id])
+        let keeper = try #require(store.add(text: "keeper").product)
+        let victim = try #require(store.add(text: "victim").product)
+        _ = store.delete(ids: [victim.id])
         _ = store.undoDelete()
 
-        store.updateText(id: keeper.id, text: "renamed")
+        _ = store.updateText(id: keeper.id, text: "renamed")
 
-        #expect(store.redo() == nil)
+        #expect(store.redo() == .unchanged)
     }
 
     @Test func unchangedEditKeepsRedo() throws {
         // Committing an editor without changes is not a mutation.
         let store = ListStore()
-        let keeper = try #require(store.add(text: "keeper").item)
-        let victim = try #require(store.add(text: "victim").item)
-        store.delete(ids: [victim.id])
+        let keeper = try #require(store.add(text: "keeper").product)
+        let victim = try #require(store.add(text: "victim").product)
+        _ = store.delete(ids: [victim.id])
         _ = store.undoDelete()
 
-        store.updateText(id: keeper.id, text: "keeper")
+        _ = store.updateText(id: keeper.id, text: "keeper")
 
-        #expect(try #require(store.redo()).removed.map(\.id) == [victim.id])
+        #expect(try #require(store.redo().product).removed.map(\.id) == [victim.id])
     }
 
     @Test func mergeClearsRedo() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a").item)
-        let b = try #require(store.add(text: "b").item)
-        let victim = try #require(store.add(text: "victim").item)
-        store.delete(ids: [victim.id])
+        let a = try #require(store.add(text: "a").product)
+        let b = try #require(store.add(text: "b").product)
+        let victim = try #require(store.add(text: "victim").product)
+        _ = store.delete(ids: [victim.id])
         _ = store.undoDelete()
 
-        _ = try #require(store.merge(ids: [a.id, b.id]))
+        _ = try #require(store.merge(ids: [a.id, b.id]).product)
 
-        #expect(store.redo() == nil)
+        #expect(store.redo() == .unchanged)
     }
 
     @Test func partialUndoInterleaveKeepsRestoreOrder() throws {
         // Redo re-appends to the top of the undo stack; a later Cmd-Z must
         // reverse the redo, not an older delete.
         let store = ListStore()
-        let a = try #require(store.add(text: "a").item)
-        let b = try #require(store.add(text: "b").item)
+        let a = try #require(store.add(text: "a").product)
+        let b = try #require(store.add(text: "b").product)
         let before = store.document
 
-        store.delete(ids: [a.id])
-        store.delete(ids: [b.id])
-        #expect(store.undoDelete().map(\.id) == [b.id])
-        #expect(try #require(store.redo()).removed.map(\.id) == [b.id])
-        #expect(store.undoDelete().map(\.id) == [b.id])
-        #expect(store.undoDelete().map(\.id) == [a.id])
+        _ = store.delete(ids: [a.id])
+        _ = store.delete(ids: [b.id])
+        #expect(store.undoDelete().product?.map(\.id) == [b.id])
+        #expect(try #require(store.redo().product).removed.map(\.id) == [b.id])
+        #expect(store.undoDelete().product?.map(\.id) == [b.id])
+        #expect(store.undoDelete().product?.map(\.id) == [a.id])
         #expect(store.document == before)
     }
 
@@ -330,11 +330,11 @@ struct ListStoreTests {
         let third = store.items[2]
         let before = store.document
 
-        _ = try #require(store.merge(ids: [first.id, third.id]))
+        _ = try #require(store.merge(ids: [first.id, third.id]).product)
         let afterMerge = store.document
         _ = store.undoDelete()
 
-        let result = try #require(store.redo())
+        let result = try #require(store.redo().product)
         #expect(store.document == afterMerge)
         #expect(result.mergedProduct?.id == first.id)
         _ = store.undoDelete()
@@ -351,7 +351,7 @@ struct ListStoreTests {
             .item(a), .verbatim("## Heading"), .item(b),
         ]))
 
-        let merged = try #require(store.merge(ids: [a.id, b.id]))
+        let merged = try #require(store.merge(ids: [a.id, b.id]).product)
         // Blank interior lines are the fragile serializer path: they emit
         // unindented, unlike two-space-indented continuations.
         let reparsed = MarkdownDocument.parse(store.document.serialized())
@@ -368,7 +368,7 @@ struct ListStoreTests {
         let store = ListStore(document: MarkdownDocument(lines: [.item(a), .item(b)]))
         let before = store.document
 
-        _ = try #require(store.merge(ids: [a.id, b.id]))
+        _ = try #require(store.merge(ids: [a.id, b.id]).product)
         _ = store.undoDelete()
 
         #expect(MarkdownDocument.parse(store.document.serialized()) == before)
@@ -376,15 +376,15 @@ struct ListStoreTests {
 
     @Test func updatingToEmptyTextDeletes() throws {
         let store = ListStore()
-        let item = try #require(store.add(text: "about to vanish").item)
-        store.updateText(id: item.id, text: "   ")
+        let item = try #require(store.add(text: "about to vanish").product)
+        _ = store.updateText(id: item.id, text: "   ")
         #expect(store.items.isEmpty)
     }
 
     @Test func updateTextRenamesPreservingIdentity() throws {
         let store = ListStore()
-        let item = try #require(store.add(text: "original").item)
-        store.updateText(id: item.id, text: "  renamed\u{2028}second  ")
+        let item = try #require(store.add(text: "original").product)
+        _ = store.updateText(id: item.id, text: "  renamed\u{2028}second  ")
 
         let updated = try #require(store.items.first)
         #expect(updated.text == "renamed\nsecond")
@@ -496,46 +496,46 @@ struct ListStoreTests {
 
     @Test func batchDeleteRemovesAllAndIgnoresUnknownIDs() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a").item)
-        let b = try #require(store.add(text: "b").item)
-        let c = try #require(store.add(text: "c").item)
+        let a = try #require(store.add(text: "a").product)
+        let b = try #require(store.add(text: "b").product)
+        let c = try #require(store.add(text: "c").product)
 
-        store.delete(ids: [a.id, c.id, UUID()])
+        _ = store.delete(ids: [a.id, c.id, UUID()])
         #expect(store.items.map(\.id) == [b.id])
 
-        store.delete(ids: [])
+        _ = store.delete(ids: [])
         #expect(store.items.count == 1)
     }
 
     @Test func setDoneConvergesMixedSelection() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a").item)
-        let b = try #require(store.add(text: "b").item)
-        store.toggleDone(ids: [a.id])
+        let a = try #require(store.add(text: "a").product)
+        let b = try #require(store.add(text: "b").product)
+        _ = store.toggleDone(ids: [a.id])
 
-        store.setDone(ids: [a.id, b.id], done: true)
+        _ = store.setDone(ids: [a.id, b.id], done: true)
         #expect(store.items.map(\.done) == [true, true])
 
-        store.setDone(ids: [a.id, b.id], done: false)
+        _ = store.setDone(ids: [a.id, b.id], done: false)
         #expect(store.items.map(\.done) == [false, false])
     }
 
     @Test func toggleDoneIDsConvergesThenFlips() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a").item)
-        let b = try #require(store.add(text: "b").item)
-        store.toggleDone(ids: [a.id])
+        let a = try #require(store.add(text: "a").product)
+        let b = try #require(store.add(text: "b").product)
+        _ = store.toggleDone(ids: [a.id])
         #expect(store.allDone(ids: [a.id, b.id]) == false)
 
-        store.toggleDone(ids: [a.id, b.id])
+        _ = store.toggleDone(ids: [a.id, b.id])
         #expect(store.items.map(\.done) == [true, true])
         #expect(store.allDone(ids: [a.id, b.id]))
 
-        store.toggleDone(ids: [a.id, b.id])
+        _ = store.toggleDone(ids: [a.id, b.id])
         #expect(store.items.map(\.done) == [false, false])
     }
 
-    @Test func undoRestoresDeletedItemAtPosition() {
+    @Test func undoRestoresDeletedItemAtPosition() throws {
         let source = """
         ## Heading
         - [ ] first
@@ -545,10 +545,10 @@ struct ListStoreTests {
         let store = ListStore(document: MarkdownDocument.parse(source))
         let second = store.items[1]
 
-        store.delete(ids: [second.id])
+        _ = store.delete(ids: [second.id])
         #expect(store.items.map(\.text) == ["first", "third"])
 
-        let restored = store.undoDelete()
+        let restored = try #require(store.undoDelete().product)
         #expect(restored.map(\.id) == [second.id])
         #expect(store.items.map(\.text) == ["first", "second", "third"])
         #expect(store.items[1].done == true)
@@ -558,15 +558,15 @@ struct ListStoreTests {
 
     @Test func undoRestoresBatchAtOriginalPositions() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a").item)
+        let a = try #require(store.add(text: "a").product)
         _ = store.add(text: "b")
-        let c = try #require(store.add(text: "c").item)
+        let c = try #require(store.add(text: "c").product)
         _ = store.add(text: "d")
 
-        store.delete(ids: [a.id, c.id])
+        _ = store.delete(ids: [a.id, c.id])
         #expect(store.items.map(\.text) == ["b", "d"])
 
-        let restored = store.undoDelete()
+        let restored = try #require(store.undoDelete().product)
         // Document order is contract: the UI highlights and scrolls to
         // `restored.first`.
         #expect(restored.map(\.text) == ["a", "c"])
@@ -583,46 +583,46 @@ struct ListStoreTests {
         let store = ListStore(document: MarkdownDocument.parse(source))
         let original = store.document
 
-        store.delete(ids: [store.items[0].id, store.items[2].id])
+        _ = store.delete(ids: [store.items[0].id, store.items[2].id])
         #expect(store.items.map(\.text) == ["b"])
 
-        #expect(store.undoDelete().map(\.text) == ["a", "c"])
+        #expect(store.undoDelete().product?.map(\.text) == ["a", "c"])
         #expect(store.document == original)
     }
 
     @Test func repeatedUndoWalksBackThroughDeletes() throws {
         let store = ListStore()
-        let a = try #require(store.add(text: "a").item)
-        let b = try #require(store.add(text: "b").item)
+        let a = try #require(store.add(text: "a").product)
+        let b = try #require(store.add(text: "b").product)
 
-        store.delete(ids: [a.id])
-        store.delete(ids: [b.id])
+        _ = store.delete(ids: [a.id])
+        _ = store.delete(ids: [b.id])
         #expect(store.items.isEmpty)
 
-        #expect(store.undoDelete().map(\.text) == ["b"])
-        #expect(store.undoDelete().map(\.text) == ["a"])
+        #expect(store.undoDelete().product?.map(\.text) == ["b"])
+        #expect(store.undoDelete().product?.map(\.text) == ["a"])
         #expect(store.items.map(\.text) == ["a", "b"])
-        #expect(store.undoDelete().isEmpty)
+        #expect(store.undoDelete() == .unchanged)
     }
 
     @Test func undoWithNoHistoryReturnsEmpty() {
         let store = ListStore()
         _ = store.add(text: "untouched")
         // A delete matching nothing must not consume an undo slot.
-        store.delete(ids: [UUID()])
-        #expect(store.undoDelete().isEmpty)
+        _ = store.delete(ids: [UUID()])
+        #expect(store.undoDelete() == .unchanged)
         #expect(store.items.count == 1)
     }
 
     @Test func undoHistoryIsCapped() throws {
         let store = ListStore()
         for index in 1 ... 12 {
-            let item = try #require(store.add(text: "note \(index)").item)
-            store.delete(ids: [item.id])
+            let item = try #require(store.add(text: "note \(index)").product)
+            _ = store.delete(ids: [item.id])
         }
 
         var restoredCount = 0
-        while !store.undoDelete().isEmpty {
+        while store.undoDelete().product != nil {
             restoredCount += 1
         }
         #expect(restoredCount == 10)
@@ -631,11 +631,11 @@ struct ListStoreTests {
 
     @Test func updateTextToEmptyIsUndoable() throws {
         let store = ListStore()
-        let item = try #require(store.add(text: "oops").item)
-        store.updateText(id: item.id, text: "   ")
+        let item = try #require(store.add(text: "oops").product)
+        _ = store.updateText(id: item.id, text: "   ")
         #expect(store.items.isEmpty)
 
-        #expect(store.undoDelete().map(\.id) == [item.id])
+        #expect(store.undoDelete().product?.map(\.id) == [item.id])
         #expect(store.items.map(\.text) == ["oops"])
     }
 
@@ -645,8 +645,8 @@ struct ListStoreTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let store = ListStore.loadFrom(storage: FileStorage(fileURL: url))
-        let item = try #require(store.add(text: "keep me").item)
-        store.delete(ids: [item.id])
+        let item = try #require(store.add(text: "keep me").product)
+        _ = store.delete(ids: [item.id])
         _ = store.undoDelete()
         store.flush()
 
@@ -660,15 +660,15 @@ struct ListStoreTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let storage = FileStorage.unwatched(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        let item = try #require(store.add(text: "deleted in app").item)
-        store.delete(ids: [item.id])
+        let item = try #require(store.add(text: "deleted in app").product)
+        _ = store.delete(ids: [item.id])
 
         store.applyExternalChange(
             MarkdownDocument.parse("- [ ] rewritten outside\n"),
             generation: storage.load().generation
         )
         #expect(store.items.map(\.text) == ["rewritten outside"])
-        #expect(store.undoDelete().isEmpty)
+        #expect(store.undoDelete() == .unchanged)
     }
 
     @Test func externalEditClearsUndoHistory() async throws {
@@ -678,10 +678,10 @@ struct ListStoreTests {
 
         let store = ListStore.loadFrom(storage: FileStorage(fileURL: url))
         _ = store.add(text: "a")
-        let b = try #require(store.add(text: "b").item)
+        let b = try #require(store.add(text: "b").product)
         store.flush()
 
-        store.delete(ids: [b.id])
+        _ = store.delete(ids: [b.id])
         try Data("- [ ] rewritten\n".utf8).write(to: url, options: .atomic)
 
         let deadline = ContinuousClock.now + .seconds(2)
@@ -689,7 +689,7 @@ struct ListStoreTests {
             try await Task.sleep(for: .milliseconds(20))
         }
         #expect(store.items.map(\.text) == ["rewritten"])
-        #expect(store.undoDelete().isEmpty)
+        #expect(store.undoDelete() == .unchanged)
     }
 
     @Test func batchMutationsPersistThroughStorage() throws {
@@ -699,12 +699,12 @@ struct ListStoreTests {
 
         let storage = FileStorage(fileURL: url)
         let store = ListStore.loadFrom(storage: storage)
-        let a = try #require(store.add(text: "a").item)
-        let b = try #require(store.add(text: "b").item)
-        let c = try #require(store.add(text: "c").item)
+        let a = try #require(store.add(text: "a").product)
+        let b = try #require(store.add(text: "b").product)
+        let c = try #require(store.add(text: "c").product)
 
-        store.setDone(ids: [a.id, b.id], done: true)
-        store.delete(ids: [c.id])
+        _ = store.setDone(ids: [a.id, b.id], done: true)
+        _ = store.delete(ids: [c.id])
         store.flush()
 
         let reloaded = ListStore.loadFrom(storage: FileStorage(fileURL: url))
@@ -942,6 +942,293 @@ struct ListStoreTests {
         #expect(store.add(text: "typed into the window") == .refused(.adoptionInFlight))
         #expect(CaptureFeedback.notesUnavailable(.adoptionInFlight).message
             == "Your notes just changed on disk — capture again")
+    }
+
+    /// A store on a real file holding four notes, one undo batch and one redo
+    /// batch, so a test can break the file underneath a store that has
+    /// something to lose in every direction. Unwatched: the app learns about
+    /// the file only by looking at it, which is what the retry is for.
+    ///
+    /// The caller owns cleanup of the returned URL's directory — `defer` in
+    /// the test rather than here, so it outlives this function's return.
+    private func loadedStore(at url: URL) throws -> (store: ListStore, storage: FileStorage) {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        // A heading and a verbatim line, so a refusal that half-applied has
+        // something structural to lose: four bare items compare equal under
+        // an items-only check no matter what happened to the rest.
+        let source = """
+        ## Heading
+        - [ ] alpha
+        - [ ] bravo
+
+        loose prose the app must preserve
+        - [ ] charlie
+        - [ ] delta
+        """
+        try Data(source.utf8).write(to: url, options: .atomic)
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        let charlie = try #require(store.items.first { $0.text == "charlie" })
+        let delta = try #require(store.items.first { $0.text == "delta" })
+        // Leaves delta's batch on the undo stack and charlie's on the redo
+        // stack, so a refused undo and a refused redo each have a batch that
+        // must survive them. Undoing last is what keeps both populated —
+        // any fresh mutation would fork history and clear the redo stack.
+        _ = store.delete(ids: [delta.id])
+        _ = store.delete(ids: [charlie.id])
+        _ = store.undoDelete()
+        store.flush()
+        return (store, storage)
+    }
+
+    /// Every mutation, not just `add`: with saving suspended the row vanishes,
+    /// the checkbox flips and the edit commits while every surface reports
+    /// success for a change that never reaches disk. The refusal lives in the
+    /// store so no surface can forget it.
+    ///
+    /// The document is compared whole afterwards because a refusal that
+    /// half-applied — removing notes and then declining to save them — would
+    /// pass every individual return-value check while leaving the panel
+    /// showing a list the file will never contain.
+    @Test func everyMutationIsRefusedWhileTheFileIsUnreadable() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let (store, storage) = try loadedStore(at: url)
+
+        let before = store.document
+        let alpha = try #require(store.items.first { $0.text == "alpha" })
+        let bravo = try #require(store.items.first { $0.text == "bravo" })
+
+        try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
+        store.retryUnavailableStorage()
+        #expect(storage.health == .unreadable(cause: .notUTF8))
+
+        let refused = Unavailability.unreadable(cause: .notUTF8)
+        #expect(store.add(text: "typed after the break") == .refused(refused))
+        #expect(store.updateText(id: alpha.id, text: "renamed") == .refused(refused))
+        #expect(store.delete(ids: [alpha.id]) == .refused(refused))
+        #expect(store.merge(ids: [alpha.id, bravo.id]) == .refused(refused))
+        #expect(store.setDone(ids: [alpha.id], done: true) == .refused(refused))
+        #expect(store.toggleDone(ids: [bravo.id]) == .refused(refused))
+        #expect(store.undoDelete() == .refused(refused))
+        #expect(store.redo() == .refused(refused))
+
+        // The whole document, not just its items: a refusal that removed a
+        // heading, or restored notes at shifted indices, passes an items-only
+        // check while leaving the file it writes next unrecognisable.
+        #expect(store.document == before, "a refusal must leave the document exactly as it was")
+    }
+
+    /// The adoption case is worse than the unreadable one: the delivery
+    /// reverts the change a moment later, so without the refusal the user
+    /// watches their own edit undo itself with no explanation. The reason has
+    /// to travel too — "the notes file can't be read" would blame a file that
+    /// reads perfectly and send them to check permissions on it.
+    @Test func everyMutationIsRefusedWhileAnAdoptionIsInFlight() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let (store, storage) = try loadedStore(at: url)
+
+        let before = store.document
+        let alpha = try #require(store.items.first { $0.text == "alpha" })
+        let bravo = try #require(store.items.first { $0.text == "bravo" })
+
+        // Adopted by the save itself rather than by a retry, which leaves the
+        // store behind with nothing to rebase it until the delivery lands.
+        try Data("- [ ] rewritten by hand\n".utf8).write(to: url, options: .atomic)
+        store.flush()
+        #expect(storage.health == .ok)
+        #expect(store.unavailability == .adoptionInFlight)
+
+        #expect(store.add(text: "typed into the window") == .refused(.adoptionInFlight))
+        #expect(store.updateText(id: alpha.id, text: "renamed") == .refused(.adoptionInFlight))
+        #expect(store.delete(ids: [alpha.id]) == .refused(.adoptionInFlight))
+        #expect(store.merge(ids: [alpha.id, bravo.id]) == .refused(.adoptionInFlight))
+        #expect(store.setDone(ids: [alpha.id], done: true) == .refused(.adoptionInFlight))
+        #expect(store.toggleDone(ids: [bravo.id]) == .refused(.adoptionInFlight))
+        #expect(store.undoDelete() == .refused(.adoptionInFlight))
+        #expect(store.redo() == .refused(.adoptionInFlight))
+
+        #expect(store.document == before)
+    }
+
+    /// A refused undo must not consume its batch. The refusal's whole remedy
+    /// is "try again", and a store that popped on the way to refusing would
+    /// have nothing left to restore when the user did — turning a recoverable
+    /// delete into a permanent one at exactly the moment the file is broken.
+    /// Redo is the same shape, and its batch is the one an undo would need.
+    @Test func aRefusedUndoOrRedoKeepsItsBatchForTheRetry() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let (store, _) = try loadedStore(at: url)
+        let ourBytes = try Data(contentsOf: url)
+
+        try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
+        store.retryUnavailableStorage()
+        #expect(store.undoDelete() == .refused(.unreadable(cause: .notUTF8)))
+        #expect(store.redo() == .refused(.unreadable(cause: .notUTF8)))
+
+        // A permission-style repair: the same bytes come back, so the
+        // reconciliation takes the `.ours` path and keeps what's in memory.
+        try ourBytes.write(to: url, options: .atomic)
+        store.retryUnavailableStorage()
+        #expect(store.unavailability == nil)
+
+        // The redo batch survived the refusal, and so did the undo batch
+        // underneath it — reached by undoing the redo, then again.
+        #expect(store.redo().product?.removed.map(\.text) == ["charlie"])
+        #expect(store.undoDelete().product?.map(\.text) == ["charlie"])
+        #expect(store.undoDelete().product?.map(\.text) == ["delta"])
+    }
+
+    /// A no-op stays `.unchanged` even while the file is broken. Reporting a
+    /// file problem for a change that was never going to be written names a
+    /// repair that would not have helped, and a surface that toasts it would
+    /// interrupt the user for nothing.
+    @Test func aMutationWithNothingToDoIsUnchangedRatherThanRefused() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let (store, _) = try loadedStore(at: url)
+        let alpha = try #require(store.items.first { $0.text == "alpha" })
+        _ = store.setDone(ids: [alpha.id], done: true)
+
+        try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
+        store.retryUnavailableStorage()
+
+        #expect(store.add(text: "   \n ") == .unchanged)
+        #expect(store.updateText(id: alpha.id, text: "alpha") == .unchanged, "committing an editor untouched")
+        #expect(store.updateText(id: UUID(), text: "gone") == .unchanged, "a note that isn't there")
+        #expect(store.delete(ids: [UUID()]) == .unchanged)
+        #expect(store.merge(ids: [alpha.id]) == .unchanged, "fewer than two sources")
+        #expect(store.setDone(ids: [alpha.id], done: true) == .unchanged, "already done")
+    }
+
+    /// Clearing a note's text routes through `delete`, the one mutation that
+    /// composes another's outcome. Its refusal arm has to survive that
+    /// translation: swallowed into `.unchanged`, the panel would close the
+    /// editor and drop the toast, discarding text at the one moment it cannot
+    /// be recovered from disk.
+    @Test func clearingTextToNothingCarriesTheDeletesRefusal() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let (store, _) = try loadedStore(at: url)
+        let alpha = try #require(store.items.first { $0.text == "alpha" })
+
+        // Healthy first: the product is the note as it *was*, not the emptied
+        // one — there is no updated note to hand back for an edit to nothing.
+        #expect(store.updateText(id: alpha.id, text: "   ") == .applied(alpha))
+        #expect(!store.items.contains { $0.id == alpha.id })
+
+        let bravo = try #require(store.items.first { $0.text == "bravo" })
+        try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
+        store.retryUnavailableStorage()
+        #expect(store.updateText(id: bravo.id, text: "  ") == .refused(.unreadable(cause: .notUTF8)))
+        #expect(store.items.contains { $0.id == bravo.id }, "the note survives its refused clear")
+    }
+
+    /// `.saveFailed` is excluded from `unavailability` deliberately, and that
+    /// exclusion now governs eight mutations rather than one. Broadening it
+    /// would turn a transient full disk into an app where every delete,
+    /// toggle and undo is refused, with a toast naming a repair the user
+    /// cannot make.
+    @Test func aSaveFailureDoesNotRefuseMutations() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)")
+        let url = directory.appending(path: "notes.md")
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let (store, storage) = try loadedStore(at: url)
+        let alpha = try #require(store.items.first { $0.text == "alpha" })
+
+        // Writes fail, reads still work: the file is intact and readable, so
+        // nothing here is unreadable or in flight.
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
+        _ = store.add(text: "typed while writes fail")
+        store.flush()
+        if case .saveFailed = storage.health {} else {
+            Issue.record("expected .saveFailed, got \(storage.health)")
+        }
+        #expect(store.unavailability == nil, "a failed write is transient; the next debounce may land")
+
+        #expect(store.add(text: "still accepted").product != nil)
+        #expect(store.setDone(ids: [alpha.id], done: true).product?.map(\.id) == [alpha.id])
+        #expect(store.delete(ids: [alpha.id]).product?.map(\.id) == [alpha.id])
+    }
+
+    /// A refused *destructive* mutation must leave the undo stack alone.
+    /// An implementation that removed first and refused afterwards could
+    /// restore the notes and still strand a batch, so the next Cmd+Z would
+    /// duplicate them — invisible to any check on the document alone.
+    @Test func aRefusedDeleteOrMergeLeavesTheUndoStackAlone() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let (store, _) = try loadedStore(at: url)
+        let ourBytes = try Data(contentsOf: url)
+        let alpha = try #require(store.items.first { $0.text == "alpha" })
+        let bravo = try #require(store.items.first { $0.text == "bravo" })
+
+        try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
+        store.retryUnavailableStorage()
+        let refused = Unavailability.unreadable(cause: .notUTF8)
+        #expect(store.delete(ids: [alpha.id]) == .refused(refused))
+        #expect(store.merge(ids: [alpha.id, bravo.id]) == .refused(refused))
+
+        try ourBytes.write(to: url, options: .atomic)
+        store.retryUnavailableStorage()
+        // The batch from before the break, not one the refusals left behind.
+        #expect(store.undoDelete().product?.map(\.text) == ["delta"])
+    }
+
+    /// Undo and redo read their stack before asking about storage. Reversing
+    /// those two lines would greet a user with no history who presses Cmd+Z
+    /// on a broken file with a toast telling them to go and fix their file.
+    @Test func undoAndRedoWithNoHistoryAreUnchangedEvenWhenBroken() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let storage = FileStorage.unwatched(fileURL: url)
+        let store = ListStore.loadFrom(storage: storage)
+        _ = store.add(text: "no history behind it")
+        store.flush()
+
+        try Data([0xFF, 0xFE, 0x00]).write(to: url, options: .atomic)
+        store.retryUnavailableStorage()
+        #expect(store.unavailability == .unreadable(cause: .notUTF8))
+
+        #expect(store.undoDelete() == .unchanged)
+        #expect(store.redo() == .unchanged)
+    }
+
+    /// A retry that adopts replaces the list wholesale, and a mutation aimed
+    /// at notes the user picked must not then be applied to notes they never
+    /// saw. The panel branches on this, so the answer has to travel.
+    @Test func retryReportsWhetherItReplacedTheDocument() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "pewter-store-tests-\(UUID().uuidString)/notes.md")
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let (store, _) = try loadedStore(at: url)
+
+        // Nothing changed on disk: the retry reconciles and keeps the list.
+        #expect(store.retryUnavailableStorage() == .documentKept)
+
+        try Data("- [ ] rewritten by hand\n".utf8).write(to: url, options: .atomic)
+        #expect(store.retryUnavailableStorage() == .documentReplaced)
+        #expect(store.items.map(\.text) == ["rewritten by hand"])
     }
 
     /// The capture that triggers an adoption used to be refused and told the
@@ -1276,12 +1563,12 @@ struct ListStoreTests {
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
         let store = ListStore.loadFrom(storage: FileStorage.unwatched(fileURL: url))
-        let item = try #require(store.add(text: "deletable").item)
-        store.delete(ids: [item.id])
+        let item = try #require(store.add(text: "deletable").product)
+        _ = store.delete(ids: [item.id])
 
         store.reloadIfPlaceholder()
 
-        #expect(!store.undoDelete().isEmpty)
+        #expect(store.undoDelete().product?.isEmpty == false)
         #expect(store.items.map(\.text) == ["deletable"])
     }
 

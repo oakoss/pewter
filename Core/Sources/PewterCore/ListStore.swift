@@ -24,8 +24,9 @@ public final class ListStore {
     ///
     /// Distinct from saving being suspended: a file that turns unreadable
     /// while the app runs leaves the real document in memory, so the panel
-    /// keeps showing the user's notes and editing them still makes sense.
-    /// That says nothing about durability — see `unavailability`.
+    /// keeps showing the user's notes — reading and copying them still work,
+    /// even though every mutation is refused. A surface asking whether a
+    /// change would be kept wants `unavailability`.
     public private(set) var placeholderCause: UnreadableCause?
 
     /// True when the list on screen is not the user's notes. The narrow test,
@@ -46,7 +47,19 @@ public final class ListStore {
     /// storage directly. Re-sampled synchronously wherever the store pokes the
     /// storage itself, so a panel that summons, retries and draws in one turn
     /// shows the banner that retry earned rather than the previous one.
-    private(set) var health = FileStorage.Health.ok
+    private(set) var health = FileStorage.Health.ok {
+        didSet {
+            // On the transition, not on every assignment: the retry re-assigns
+            // `.ok` on each keypress, and clearing there would re-arm the
+            // refusal log once per press inside the adoption window the
+            // throttle exists to quieten. Here rather than at each call site
+            // so the watcher's own health delivery is covered too — a repair
+            // made by rewriting the file reaches health only through that.
+            if health == .ok, oldValue != .ok {
+                lastLoggedRefusal = nil
+            }
+        }
+    }
 
     /// Banner text for a storage problem worth interrupting the user about,
     /// nil when there is none.
@@ -65,6 +78,14 @@ public final class ListStore {
     /// would otherwise bury the line explaining why — but a file whose failure
     /// mode *changed* has something new to say.
     private var lastLoggedReloadFailure: UnreadableCause?
+
+    /// The action and reason the last refusal line named, so a run of refused
+    /// keystrokes against one broken file logs once rather than once per
+    /// press. Cleared wherever health is reconciled — not merely where a
+    /// mutation observes it healthy — because reading, searching and copying
+    /// are all non-mutating, so "repaired but never mutated" is an ordinary
+    /// session and a second identical break would otherwise go unlogged.
+    private var lastLoggedRefusal: (mutation: String, reason: Unavailability)?
 
     /// One undoable mutation: the lines it removed, plus any line it
     /// inserted (merge), each with its recorded index. Undo removes the
@@ -115,7 +136,7 @@ public final class ListStore {
             // stale content (the hash guard suppresses any correction).
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    store?.applyExternalChange(newDocument, generation: generation)
+                    _ = store?.applyExternalChange(newDocument, generation: generation)
                 }
             }
         }
@@ -154,17 +175,18 @@ public final class ListStore {
     /// choice available, since a store left on the baseline while the
     /// storage has moved on has every save refused for the life of the
     /// process.
+    @discardableResult
     func applyExternalChange(
         _ newDocument: MarkdownDocument,
         generation: FileStorage.DocumentGeneration
-    ) {
+    ) -> Bool {
         // A reload supersedes whatever was in flight when it ran, so a
         // delivery on a generation this store has already applied describes an
         // older document — applying it would discard everything added since,
         // including the capture that prompted the reload.
         if generation <= self.generation {
             Logger.storage.notice("dropped an external delivery the store has already moved past")
-            return
+            return false
         }
         let before = document.items.count
         let after = newDocument.items.count
@@ -175,6 +197,7 @@ public final class ListStore {
         deletedBatches.removeAll()
         redoBatches.removeAll()
         self.generation = generation
+        return true
     }
 
     /// Why a note accepted now would not reach disk, or nil when it would.
@@ -221,8 +244,9 @@ public final class ListStore {
     /// file's bytes, but not a permission-only fix, and it may never have
     /// armed at all. Nothing else re-reads the file either, since every input
     /// is refused while the document is a placeholder.
-    public func reloadIfPlaceholder() {
-        guard documentIsPlaceholder, let storage else { return }
+    @discardableResult
+    public func reloadIfPlaceholder() -> Bool {
+        guard documentIsPlaceholder, let storage else { return false }
         let loaded = storage.load()
         // Taken from the load rather than re-read, so one look at the file
         // feeds both the mirror and the placeholder: a second `queue.sync`
@@ -254,7 +278,7 @@ public final class ListStore {
                 let reason = cause.logDescription
                 Self.logger.notice("retried the notes file; still unreadable (\(reason))")
             }
-            return
+            return false
         }
         lastLoggedReloadFailure = nil
         // "Readable" covers a file that is gone, too: the load reports an
@@ -264,7 +288,25 @@ public final class ListStore {
         Self.logger.notice("notes file re-read on retry; adopting what is on disk")
         // A repaired file is an external change like any other: same
         // adoption, same history reset.
-        applyExternalChange(loaded.document, generation: loaded.generation)
+        return applyExternalChange(loaded.document, generation: loaded.generation)
+    }
+
+    /// What a retry did to the document, for callers whose next step depends
+    /// on it. An add can land on freshly adopted content and be none the
+    /// wiser, but a mutation aimed at notes the user picked out cannot: the
+    /// list it was aimed at is gone, and applying it to the replacement would
+    /// act on notes the user never chose.
+    ///
+    /// `.documentKept` presumes an external-change handler is installed, which
+    /// `loadFrom` guarantees: without one the storage can adopt foreign content
+    /// and report nothing adopted, and a mutation would then be accepted onto a
+    /// document the store will never receive.
+    public enum RetryOutcome: Equatable, Sendable {
+        /// Still the document the caller was looking at.
+        case documentKept
+        /// Content from disk was adopted, replacing the document and clearing
+        /// undo history.
+        case documentReplaced
     }
 
     /// Retries whichever repair the current state needs, for surfaces that
@@ -287,12 +329,12 @@ public final class ListStore {
     /// are taken from the refresh rather than awaited, and an adoption found
     /// here is applied, which replaces the document and clears undo history. A
     /// panel summon can therefore swap the list out before it draws.
-    public func retryUnavailableStorage() {
+    @discardableResult
+    public func retryUnavailableStorage() -> RetryOutcome {
         if documentIsPlaceholder {
-            reloadIfPlaceholder()
-            return
+            return reloadIfPlaceholder() ? .documentReplaced : .documentKept
         }
-        guard let storage else { return }
+        guard let storage else { return .documentKept }
         let refresh = storage.refreshFromDisk()
         // Taken here rather than left to the change handler, which is queued
         // a hop behind and would miss the window this refresh closed.
@@ -310,77 +352,135 @@ public final class ListStore {
         // closes by itself when the delivery lands on the next turn, and until
         // it does `unavailability` reports `.adoptionInFlight`, whose remedy
         // is to try again rather than to go and repair a healthy file.
-        guard let adopted = refresh.adopted else { return }
-        applyExternalChange(adopted.document, generation: adopted.generation)
+        guard let adopted = refresh.adopted else { return .documentKept }
+        return applyExternalChange(adopted.document, generation: adopted.generation)
+            ? .documentReplaced
+            : .documentKept
     }
 
-    /// What became of an add. An optional conflated the two ways it can fail —
-    /// nothing to add is about the input, a refusal is about the file — so
-    /// callers switch rather than inferring a remedy from an absence.
-    public enum AddResult: Equatable, Sendable {
-        case added(Item)
-        /// Whitespace-only text; nothing was stored and nothing is wrong.
-        case emptyText
-        /// The text was fine but would not have reached disk.
-        case refused(Unavailability)
+    /// Why this change would not reach disk, nil when it would, logging the
+    /// refusal against the mutation that earned it.
+    ///
+    /// Every mutation asks this *after* establishing it has something to do,
+    /// so a no-op never reports a file problem whose repair would not have
+    /// helped it, and before touching `document`, so a refusal leaves the
+    /// list exactly as the user is looking at it.
+    private func refusal(logging mutation: StaticString) -> Unavailability? {
+        guard let unavailability else {
+            lastLoggedRefusal = nil
+            return nil
+        }
+        // Throttled on the reason, the way `reloadIfPlaceholder` throttles its
+        // retry line: a user holding Space against a broken file would
+        // otherwise emit one line per keystroke into the bounded window Copy
+        // Diagnostics reads, burying the load-time line naming what is wrong
+        // with the file — the one a report is opened over.
+        let mutationName = String(describing: mutation)
+        // The pair, not the reason alone: keyed on the reason, the first
+        // refused action logs and every different one after it goes silent —
+        // so a report of "Delete does nothing" arrives with a log line about
+        // marking done. A held key repeats the same pair, which is the case
+        // the throttle is for.
+        if lastLoggedRefusal?.mutation != mutationName || lastLoggedRefusal?.reason != unavailability {
+            lastLoggedRefusal = (mutationName, unavailability)
+            switch unavailability {
+            case .unreadable:
+                Self.logger.error("\(mutation, privacy: .public) refused: \(unavailability.logDescription)")
+            case .adoptionInFlight:
+                // Self-clearing within a turn, so an error overstates it.
+                Self.logger.notice("\(mutation, privacy: .public) refused: \(unavailability.logDescription)")
+            }
+        }
+        return unavailability
     }
 
     /// Appends `text`, refusing when it would not reach disk rather than
     /// accepting it into a document that is about to be replaced.
     ///
     /// The refusal lives here, not in each surface, so a caller cannot forget
-    /// it and silently drop the user's text. It covers this method only —
-    /// every other mutation still persists unchecked (pw-jvu).
+    /// it and silently drop the user's text. Every other mutation checks the
+    /// same way, for the same reason.
     ///
     /// Callers that can retry should call `retryUnavailableStorage()` first;
     /// this does not, because the retry can replace the document out from
     /// under a surface that is mid-render.
     ///
     /// Not `@discardableResult`: dropping the answer is how the user's text
-    /// goes missing without anyone being told, which is the whole failure this
-    /// return type exists to make impossible.
-    public func add(text: String) -> AddResult {
+    /// goes missing without anyone being told, so ignoring it costs a compiler
+    /// warning. That is a warning, not an error — nothing in the package or
+    /// the app target escalates it — so it makes the mistake loud, not
+    /// impossible.
+    ///
+    /// `.unchanged` here means whitespace-only input and nothing else, which
+    /// is what lets a caller map it straight to "nothing was selected".
+    public func add(text: String) -> MutationOutcome<Item> {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return .emptyText }
-        // After the empty check: whitespace-only text has nothing to lose, and
-        // reporting a file problem for it names a remedy that would not have
-        // helped.
-        if let unavailability {
-            Self.logger.error("add refused: \(unavailability.logDescription)")
-            return .refused(unavailability)
+        // Whitespace-only text has nothing to lose, so it is `.unchanged`
+        // rather than a refusal even when the file is broken.
+        guard !trimmed.isEmpty else { return .unchanged }
+        if let reason = refusal(logging: "add") {
+            return .refused(reason)
         }
         let item = Item(text: trimmed)
         document.append(item)
         invalidateRedo()
         persist()
-        return .added(item)
+        return .applied(item)
     }
 
-    public func updateText(id: UUID, text: String) {
-        guard let item = items.first(where: { $0.id == id }) else { return }
+    public func updateText(id: UUID, text: String) -> MutationOutcome<Item> {
+        guard let item = items.first(where: { $0.id == id }) else {
+            // Reachable only if the note went away between the editor opening
+            // and committing, which is an external change — and that takes the
+            // editor down with it, so no typed text is stranded here. Logged
+            // because that reasoning is the only thing separating this
+            // `.unchanged` from one that silently eats an edit.
+            Self.logger.error("edit dropped: the note no longer exists")
+            return .unchanged
+        }
         // Rebuilding through the initializer applies its line-break
         // normalization to edited text, same as captured text.
         let updated = Item(id: item.id, text: text, done: item.done, createdAt: item.createdAt)
         guard !updated.text.isEmpty else {
-            // Clearing the text is a delete, and an undoable one.
-            delete(ids: [id])
-            return
+            // Clearing the text is a delete, and an undoable one — including
+            // its refusal. `item` is the note as it was, which is exactly the
+            // product an edit-to-nothing should hand back, so the answer never
+            // depends on the delete's payload being non-empty.
+            // Named for what the user did, not how it is implemented: a
+            // diagnostics dump reading "delete refused" for an edit sends the
+            // reader after the wrong action.
+            switch delete(ids: [id], loggingAs: "edit") {
+            case .applied: return .applied(item)
+            case .unchanged: return .unchanged
+            case let .refused(reason): return .refused(reason)
+            }
         }
         // Committing an editor untouched is not a mutation — it must not
-        // fork history or schedule a save.
-        guard updated.text != item.text else { return }
+        // fork history, schedule a save, or be refused.
+        guard updated.text != item.text else { return .unchanged }
+        if let reason = refusal(logging: "edit") {
+            return .refused(reason)
+        }
         document.update(updated)
         invalidateRedo()
         persist()
+        return .applied(updated)
     }
 
-    public func delete(ids: Set<UUID>) {
+    public func delete(ids: Set<UUID>, loggingAs mutation: StaticString = "delete") -> MutationOutcome<[Item]> {
+        // Asked before removing rather than by removing: a refusal must leave
+        // the notes on screen, and putting them back afterwards would restore
+        // them at indices the removal had already shifted.
+        guard items.contains(where: { ids.contains($0.id) }) else { return .unchanged }
+        if let reason = refusal(logging: mutation) {
+            return .refused(reason)
+        }
         let removed = document.removeAll(ids: ids)
-        guard !removed.isEmpty else { return }
-        Self.logger.info("deleted \(removed.count) notes")
+        Self.logger.info("\(mutation, privacy: .public) removed \(removed.count) notes")
         recordUndo(UndoBatch(removed: removed))
         invalidateRedo()
         persist()
+        return .applied(removed.map(\.item))
     }
 
     /// Merges the given items into one note at the earliest one's position,
@@ -390,10 +490,12 @@ public final class ListStore {
     /// wins. The merged
     /// note keeps the first item's identity and is done only when every
     /// source was done. Undoable as a single batch.
-    @discardableResult
-    public func merge(ids: Set<UUID>) -> Item? {
+    public func merge(ids: Set<UUID>) -> MutationOutcome<Item> {
         let sources = items.filter { ids.contains($0.id) }
-        guard sources.count >= 2, let first = sources.first else { return nil }
+        guard sources.count >= 2, let first = sources.first else { return .unchanged }
+        if let reason = refusal(logging: "merge") {
+            return .refused(reason)
+        }
         let merged = Item(
             id: first.id,
             text: sources.map(\.text).joined(separator: "\n\n"),
@@ -401,7 +503,19 @@ public final class ListStore {
             createdAt: first.createdAt
         )
         let removed = document.removeAll(ids: ids)
-        guard let index = removed.first?.index else { return nil }
+        // The recorded position of the earliest source. Taken from the removal
+        // rather than looked up again so it describes the same pass.
+        //
+        // Unreachable: `sources` came from the document, so removing them
+        // returns at least two entries. Asserted rather than restored — the
+        // only way here is `removed` being empty, so there is nothing to put
+        // back, and a debug trap is what catches a future change to either
+        // side before it ships.
+        guard let index = removed.first?.index else {
+            assertionFailure("merge removed \(sources.count) sources but recorded no index")
+            Self.logger.error("merge found no insertion index; \(sources.count) sources were not merged")
+            return .unchanged
+        }
         document.insert(merged, at: index)
         Self.logger.info("merged \(sources.count) notes into one")
         recordUndo(UndoBatch(
@@ -410,7 +524,7 @@ public final class ListStore {
         ))
         invalidateRedo()
         persist()
-        return merged
+        return .applied(merged)
     }
 
     private func recordUndo(_ batch: UndoBatch) {
@@ -427,8 +541,8 @@ public final class ListStore {
         redoBatches.removeAll()
     }
 
-    /// Restores the most recent batch and returns the restored items, empty
-    /// when there is nothing to undo. Recorded indices are always valid:
+    /// Restores the most recent batch and returns the restored items;
+    /// `.unchanged` when there is nothing to undo. Recorded indices are always valid:
     /// `lines` shrinks only through `delete(ids:)` and `merge(ids:)` (which
     /// always record), `applyExternalChange` (which clears the history), or
     /// `redo()` (which replays a batch against the exact state it was
@@ -436,8 +550,15 @@ public final class ListStore {
     /// replays states in reverse, and the depth cap evicts from the oldest
     /// end. Removing a merge's inserted line first restores the exact line
     /// count its indices were recorded against.
-    public func undoDelete() -> [Item] {
-        guard let batch = deletedBatches.popLast() else { return [] }
+    public func undoDelete() -> MutationOutcome<[Item]> {
+        // Read, then pop only once the undo is going to happen: a refusal that
+        // consumed the batch would make the notes unrecoverable on the retry
+        // it tells the user to make.
+        guard let batch = deletedBatches.last else { return .unchanged }
+        if let reason = refusal(logging: "undo") {
+            return .refused(reason)
+        }
+        deletedBatches.removeLast()
         Self.logger.info("undo restored \(batch.removed.count) notes")
         if !batch.inserted.isEmpty {
             _ = document.removeAll(ids: Set(batch.inserted.map(\.item.id)))
@@ -449,7 +570,7 @@ public final class ListStore {
         }
         redoBatches.append(batch)
         persist()
-        return batch.removed.map(\.item)
+        return .applied(batch.removed.map(\.item))
     }
 
     /// Outcome of a successful redo: what vanished again and, for a merge,
@@ -459,13 +580,18 @@ public final class ListStore {
         public let mergedProduct: Item?
     }
 
-    /// Re-applies the most recently undone batch; nil when there is nothing
-    /// to redo. Valid by construction: only `undoDelete` feeds the redo
+    /// Re-applies the most recently undone batch; `.unchanged` when there is
+    /// nothing to redo. Valid by construction: only `undoDelete` feeds the redo
     /// stack, every other mutation clears it, and external changes clear
     /// both stacks — so at redo time the document is byte-for-byte the
     /// state the batch was recorded against.
-    public func redo() -> RedoResult? {
-        guard let batch = redoBatches.popLast() else { return nil }
+    public func redo() -> MutationOutcome<RedoResult> {
+        // Popped only once the redo is going to happen, same as undo.
+        guard let batch = redoBatches.last else { return .unchanged }
+        if let reason = refusal(logging: "redo") {
+            return .refused(reason)
+        }
+        redoBatches.removeLast()
         Self.logger.info("redo re-removed \(batch.removed.count) notes")
         _ = document.removeAll(ids: Set(batch.removed.map(\.item.id)))
         for entry in batch.inserted {
@@ -474,17 +600,25 @@ public final class ListStore {
         // Back onto the undo stack, so Cmd-Z can reverse the redo again.
         recordUndo(batch)
         persist()
-        return RedoResult(
+        return .applied(RedoResult(
             removed: batch.removed.map(\.item),
             mergedProduct: batch.inserted.first?.item
-        )
+        ))
     }
 
-    public func setDone(ids: Set<UUID>, done: Bool) {
-        if document.setDone(ids: ids, done: done) {
-            invalidateRedo()
-            persist()
+    public func setDone(ids: Set<UUID>, done: Bool) -> MutationOutcome<[Item]> {
+        // Narrowed to the ids that would flip, so re-marking an already-done
+        // note stays a no-op rather than a refusal, and so the check runs
+        // before `document` is touched.
+        let changing = Set(items.filter { ids.contains($0.id) && $0.done != done }.map(\.id))
+        guard !changing.isEmpty else { return .unchanged }
+        if let reason = refusal(logging: "mark done") {
+            return .refused(reason)
         }
+        document.setDone(ids: changing, done: done)
+        invalidateRedo()
+        persist()
+        return .applied(items.filter { changing.contains($0.id) })
     }
 
     /// True when every item in `ids` is done. Drives both the converge
@@ -495,7 +629,7 @@ public final class ListStore {
 
     /// Converges a mixed selection instead of flipping each member: any
     /// not-done item marks the whole set done.
-    public func toggleDone(ids: Set<UUID>) {
+    public func toggleDone(ids: Set<UUID>) -> MutationOutcome<[Item]> {
         setDone(ids: ids, done: !allDone(ids: ids))
     }
 

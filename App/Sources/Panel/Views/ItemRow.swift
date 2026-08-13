@@ -36,6 +36,11 @@ struct ItemRow: View {
     let isSelected: Bool
     let isHighlighted: Bool
     let isEditing: Bool
+    /// Text from an edit the store refused, so re-opening the editor restores
+    /// what the user typed rather than what is still in the document. Owned by
+    /// the panel: this row is torn down and rebuilt across a refusal, and
+    /// anything held here would not survive it.
+    let pendingEditText: String?
     let isExpanded: Bool
     var editorFocus: FocusState<PanelRootView.Field?>.Binding
     let actions: ItemRowActions
@@ -215,7 +220,7 @@ struct ItemRow: View {
             TextField("", text: $editText, axis: .vertical)
                 .textFieldStyle(.plain)
                 .focused(editorFocus, equals: .editor)
-                .onAppear { editText = item.text }
+                .onAppear { editText = pendingEditText ?? item.text }
                 .onSubmit { actions.commitEdit(editText) }
                 .onKeyPress(.escape) {
                     actions.cancelEdit()
