@@ -249,11 +249,14 @@ public final class CaptureCoordinator {
         // unreadable never reaches disk, and reporting "Captured" for that is
         // the lie to avoid. The store decides and names the reason.
         switch store.add(text: text) {
-        case let .added(item):
+        case let .applied(item):
             lastCapture = (item.id, now())
             Self.logger.info("captured \(text.count) chars via \(tier, privacy: .public) tier")
             onOutcome?(.captured(item, anchor: anchor))
-        case .emptyText:
+        case .unchanged:
+            // `add` returns `.unchanged` for whitespace-only input and nothing
+            // else (see its doc), which is what lets this map to "nothing
+            // selected" rather than having to ask why.
             Self.logger.info("capture ended: whitespace-only text via \(tier, privacy: .public) tier")
             onOutcome?(.nothingSelected(anchor: noTextAnchor))
         case let .refused(reason):

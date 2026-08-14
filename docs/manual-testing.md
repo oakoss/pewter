@@ -639,6 +639,73 @@ an AX answer delivers plain text that passes through untouched.
       away. Check in both light and dark appearance, and with System Settings
       → Accessibility → Display → Reduce Transparency on, since the design
       leans on materials
+- [ ] Walk every *other* mutation and confirm each refuses rather than
+      appearing to work. This needs its own setup — do NOT chain it off the
+      `chmod 000` + relaunch above, which loads a placeholder with an empty
+      list, leaving no row to click, no selection to delete and no two rows
+      to merge. Instead: with real notes loaded, delete two notes separately,
+      then press Cmd+Z *once* — undo moves a batch from one stack to the
+      other rather than copying it, so a single delete-then-undo would leave
+      the undo stack empty and Cmd+Z below would report nothing to do instead
+      of refusing. Then `chmod 000` the file *without relaunching* and summon
+      the panel, which retries and notices the break.
+      Now: click a row's checkbox, Space on a selection, Delete on a
+      selection, the context menu's Delete and Mark as Done, Cmd+M on two
+      selected rows, Cmd+Z, Cmd+Shift+Z. Each shows the same repair toast the
+      composer does and leaves the list untouched — no row vanishes, no
+      checkbox flips — and none of the shortcuts draws an alert beep, since a
+      refusal is handled rather than passed along the responder chain. Before
+      the refusal moved into the store these all reported success for a change
+      that never reached disk, and the undo cases were worse than they looked:
+      the batch was consumed on the way out, so the retry the toast asks for
+      had nothing left to restore
+- [ ] Still unreadable, Return on a row to edit it, change the text, press
+      Return → the toast appears and *the editor stays open with the edit in
+      it*, the same way the composer keeps its draft. Closing it would throw
+      the text away at the one moment it cannot be recovered from disk, and
+      submit resigns first responder, which independently tears the editor
+      down — so this is checking that the commit path puts it back. Then
+      `chmod 644` and press Return in that same editor → the edit commits with
+      no relaunch and no re-summon: every mutation path re-reads the file the
+      way the composer does, which is the only thing that can notice a
+      permission repair (it fires no watcher event)
+- [ ] Same again, but repair the file by *rewriting* it from another editor
+      while a row editor is open, then press Return. A rewrite is adopted
+      rather than reconciled, so which of two things happens depends on
+      whether the rewritten line kept its `<!--sl id=…-->` metadata — check
+      both:
+  - [ ] Rewrite keeping the edited note's `id=` → the toast reads "Your notes
+        just changed on disk — try again" and the editor stays open holding
+        what you typed, not what the file now says
+  - [ ] Rewrite dropping that note's line (or its `id=`, which mints a new
+        one) → the note being edited no longer exists, so there is no editor
+        to return to. The typed text moves into the composer, which takes
+        focus, and the search field is cleared so it is visible. Losing it
+        would be the one thing here that cannot be recovered from disk. The
+        toast must read "That note is gone — your edit moved to the new-note
+        field", NOT "try again" — there is nothing left to retry against
+  - [ ] The same, but with something already typed in the composer first →
+        the rescued edit is appended below a blank line and the toast reads
+        "That note is gone — your edit was added to your draft". They
+        become one note on Return, since
+        the composer never splits on newlines; the blank line is what makes
+        the seam visible enough to split by hand
+- [ ] An adoption clears both history stacks, so nothing from before an
+      external rewrite may ever replay. Build both stacks first with the
+      two-delete/one-undo setup above — checking only one would leave a stale
+      redo entry free to come back. With the panel open, rewrite the file
+      externally, then press Cmd+Z and Cmd+Shift+Z. Neither may resurrect a
+      note from before the rewrite; that is the whole assertion here.
+      Whether you get the "Your notes changed on disk — undo history was
+      cleared" toast or the ordinary nothing-to-do beep is a race and both
+      are correct: the toast belongs to the case where the keypress's own
+      retry discovers the rewrite, and with the panel open the watcher
+      usually adopts first, which leaves simply an empty history. Don't try
+      to force the toast with the `chmod` trick from the items above — an
+      unreadable file reconciles to blocked, which is a refusal and never an
+      adoption. That branch has no reliable trigger by hand; the store's
+      side of it is covered by `retryReportsWhetherItReplacedTheDocument`,
+      and the panel's wiring onto it is knowingly uncovered
 - [ ] With that same unreadable file, select text in another app and
       double-tap Shift → the HUD reads "Can't read your notes file — check its
       permissions", rather than appearing to capture. The matching sound plays

@@ -18,6 +18,10 @@ struct PanelRootView: View {
     /// end up off-screen; scrolling back to it keeps the user's place.
     @State private var collapseScrollTarget: UUID?
     @State private var editingID: UUID?
+    /// The text of an edit the store refused, held here so re-opening the
+    /// editor cannot reseed itself from the document and quietly discard it.
+    /// Keyed by id so a refusal on one row can't repopulate another.
+    @State private var pendingEdit: (id: UUID, text: String)?
     @State private var showsShortcutGuide = false
     @FocusState private var focus: Field?
 
@@ -226,6 +230,12 @@ struct PanelRootView: View {
             // stale editor row with uncommitted text and dead arrow keys —
             // `editingID` and `.editor` focus must never diverge.
             if newFocus != .editor, editingID != nil {
+                // `pendingEdit` deliberately outlives this. Submit resigns
+                // first responder, so a refusal's re-assert can land either
+                // side of this handler — clearing here would destroy the text
+                // `reopenEditor` had saved, in the ordering where the bounce
+                // arrives last. It is keyed by id and `beginEdit` clears it,
+                // so a stale one can never seed a different edit.
                 editingID = nil
             }
             // Moving into the composer means done with the list; a parked
@@ -312,10 +322,11 @@ struct PanelRootView: View {
                                 isSelected: isRowSelected,
                                 isHighlighted: item.id == uiState.highlightedItemID,
                                 isEditing: item.id == editingID,
+                                pendingEditText: pendingEdit?.id == item.id ? pendingEdit?.text : nil,
                                 isExpanded: expansion.isExpanded(item.id),
                                 editorFocus: $focus,
                                 actions: ItemRowActions(
-                                    toggle: { store.toggleDone(ids: [item.id]) },
+                                    toggle: { applied { store.toggleDone(ids: [item.id]) } },
                                     // Row-level like the checkbox: the chevron
                                     // toggles its own row even inside a
                                     // multi-selection; Cmd+E is the selection
@@ -325,6 +336,7 @@ struct PanelRootView: View {
                                     beginEdit: { beginEdit(item) },
                                     commitEdit: { text in commitEdit(id: item.id, text: text) },
                                     cancelEdit: {
+                                        pendingEdit = nil
                                         editingID = nil
                                         focus = .list
                                     },
@@ -546,14 +558,14 @@ struct PanelRootView: View {
                 // disabled — a disabled field can't be focused, so VoiceOver
                 // could never reach the reason.
                 switch store.add(text: draft) {
-                case let .added(added):
+                case let .applied(added):
                     draft = ""
                     // Same rule as capture: a filter that hides the new
                     // note would make the add read as a failure.
                     uiState.query = ""
                     selection.select(added.id)
                     uiState.reveal(added.id)
-                case .emptyText:
+                case .unchanged:
                     break
                 case let .refused(reason):
                     uiState.showToast(reason.refusalMessage, severity: .refusal)
@@ -728,7 +740,7 @@ struct PanelRootView: View {
     private func toggleSelected() -> KeyPress.Result {
         let ids = selectedIDs
         guard focus == .list, !ids.isEmpty else { return .ignored }
-        store.toggleDone(ids: ids)
+        applied { store.toggleDone(ids: ids) }
         return .handled
     }
 
@@ -739,9 +751,98 @@ struct PanelRootView: View {
         return .handled
     }
 
+    /// What became of a mutation once the panel had its say. Distinct from
+    /// `MutationOutcome` by one arm: the store never sees `documentReplaced`,
+    /// because the retry that caused it happens out here.
+    private enum Disposition {
+        case applied
+        case unchanged
+        /// The store declined; the document is untouched and a toast is up.
+        case refused
+        /// A retry adopted content from disk before the mutation ran, so the
+        /// notes it was aimed at may no longer exist. Nothing was attempted.
+        case documentReplaced
+
+        /// Whether the user was told. Anything true here was handled, and a
+        /// shortcut reporting `.ignored` over it lets the key fall through the
+        /// responder chain and beep across the toast that just explained
+        /// itself.
+        var wasReported: Bool {
+            self == .refused || self == .documentReplaced
+        }
+    }
+
+    /// The product of a mutation, or nil when it did not happen — and a
+    /// refusal gets the same toast the composer shows, so no path can drop a
+    /// change the user watched themselves make without saying why.
+    ///
+    /// Reconciles with disk first, in the same order the composer and capture
+    /// do, which is why the mutation arrives as a closure rather than an
+    /// already-evaluated value. Both directions need it: a break that fired no
+    /// watcher event would otherwise let the first change through and report it
+    /// saved, and a permission-only repair fires no event either, so without
+    /// this every control would keep refusing a file the user has already
+    /// fixed.
+    ///
+    /// `nil` covers "nothing to do", "refused" and "the document was
+    /// replaced" alike, because the callers that need to tell them apart —
+    /// the editor and the keyboard paths — switch on the disposition instead.
+    @discardableResult
+    private func applied<Value>(_ mutate: () -> MutationOutcome<Value>) -> Value? {
+        outcome(of: mutate).value
+    }
+
+    /// The product, plus what became of the attempt — which `applied` throws
+    /// away and the keyboard and editor paths need.
+    ///
+    /// `whenReplaced` is the message for an adoption, because the default
+    /// ("try again") is only good advice where trying again can work. Undo and
+    /// redo pass their own: an adoption clears the history, so their retry is
+    /// a guaranteed no-op.
+    private func outcome<Value>(
+        of mutate: () -> MutationOutcome<Value>,
+        whenReplaced replacedMessage: String = Unavailability.adoptionInFlight.refusalMessage
+    ) -> (value: Value?, disposition: Disposition) {
+        // A retry that adopts replaces the list wholesale. An add can ride
+        // that out — it appends to whatever is current — but a mutation aimed
+        // at notes the user picked would then act on a list they never saw, so
+        // it stops here and says what happened, rather than reaching for ids
+        // that no longer exist and reporting "nothing happened".
+        if store.retryUnavailableStorage() == .documentReplaced {
+            uiState.showToast(replacedMessage, severity: .refusal)
+            return (nil, .documentReplaced)
+        }
+        switch mutate() {
+        case let .applied(value):
+            return (value, .applied)
+        case .unchanged:
+            return (nil, .unchanged)
+        case let .refused(reason):
+            uiState.showToast(reason.refusalMessage, severity: .refusal)
+            return (nil, .refused)
+        }
+    }
+
+    /// Toast for an adoption that landed on undo or redo. "Try again" would be
+    /// a lie: adopting clears both stacks, so the retry it asks for finds an
+    /// empty history and does nothing at all.
+    private static let historyClearedMessage = "Your notes changed on disk — undo history was cleared"
+
     private func mergeSelected() -> KeyPress.Result {
         let ids = selectedIDs
-        guard ids.count > 1, let merged = store.merge(ids: ids) else { return .ignored }
+        guard ids.count > 1 else { return .ignored }
+        let result = outcome(of: { store.merge(ids: ids) })
+        guard let merged = result.value else {
+            if result.disposition == .unchanged {
+                // Two or more selected rows always come from the document, so
+                // the store had sources and `.unchanged` means its insertion
+                // seam broke. That seam asserts, which is a no-op in release —
+                // without this the user's Cmd+M would answer with a beep.
+                uiState.showToast("Couldn't merge those notes", severity: .refusal)
+                return .handled
+            }
+            return result.disposition.wasReported ? .handled : .ignored
+        }
         selection.select(merged.id)
         uiState.reveal(merged.id)
         return .handled
@@ -755,15 +856,21 @@ struct PanelRootView: View {
     }
 
     private func delete(ids: Set<UUID>) {
-        // Advance before the store mutates: the survivor rule needs the
-        // pre-removal order.
-        selection.removeAndAdvance(ids: ids, order: visibleOrder)
-        store.delete(ids: ids)
+        var order: [UUID] = []
+        // Read inside the closure, so it is taken after `applied` reconciles
+        // and before the store mutates: an adoption found by that reconcile
+        // replaces the list, and a survivor rule computed against the old one
+        // would advance the selection onto a note that is no longer there.
+        guard applied({
+            order = visibleOrder
+            return store.delete(ids: ids)
+        }) != nil else { return }
+        selection.removeAndAdvance(ids: ids, order: order)
     }
 
     private func undoDelete() -> KeyPress.Result {
-        let restored = store.undoDelete()
-        guard !restored.isEmpty else { return .ignored }
+        let undone = outcome(of: { store.undoDelete() }, whenReplaced: Self.historyClearedMessage)
+        guard let restored = undone.value else { return undone.disposition.wasReported ? .handled : .ignored }
         // Selecting and flashing the restored notes is the only feedback —
         // there's no undo toast — so both must survive an active filter
         // hiding them (replace prunes; scrollTo of a hidden id is a no-op).
@@ -776,7 +883,8 @@ struct PanelRootView: View {
     }
 
     private func redoDelete() -> KeyPress.Result {
-        guard let result = store.redo() else { return .ignored }
+        let redone = outcome(of: { store.redo() }, whenReplaced: Self.historyClearedMessage)
+        guard let result = redone.value else { return redone.disposition.wasReported ? .handled : .ignored }
         if let product = result.mergedProduct {
             // A merge redo re-creates its product — select and reveal it,
             // same feedback shape as undo's restored notes.
@@ -820,20 +928,96 @@ struct PanelRootView: View {
     }
 
     private func toggleDone(_ items: [Item]) {
-        store.toggleDone(ids: Set(items.map(\.id)))
+        applied { store.toggleDone(ids: Set(items.map(\.id))) }
     }
 
     private func beginEdit(_ item: Item) {
+        // A fresh edit starts from the document, never from a refusal the
+        // user has since walked away from.
+        pendingEdit = nil
         editingID = item.id
         selection.select(item.id)
         focus = .editor
     }
 
     private func commitEdit(id: UUID, text: String) {
-        store.updateText(id: id, text: text)
-        editingID = nil
-        focus = .list
+        let result = outcome(of: { store.updateText(id: id, text: text) })
+        switch result.disposition {
+        case .refused:
+            // The editor comes back holding what the user typed, the same way
+            // the composer keeps its draft. All three parts are re-asserted,
+            // not focus alone: submit resigns first responder, and
+            // `onChange(of: focus)` clears `editingID` the moment focus leaves
+            // `.editor`, so the row may already be gone — and `pendingEdit` is
+            // what stops the rebuilt editor reseeding itself from the
+            // document. This still depends on submit's resign landing before
+            // this call — the composer's own draft-collapse code measures that
+            // restore at 23–56ms across three runloop hops — so it is verified
+            // by hand rather than proven here; see the editor items in
+            // docs/manual-testing.md.
+            reopenEditor(id: id, keeping: text)
+        case .documentReplaced:
+            // The adopted document may not contain this note at all — a
+            // hand-rewrite that drops the id metadata mints a new one — so
+            // re-opening could point at a row that no longer exists. Land the
+            // text somewhere it survives either way.
+            if store.items.contains(where: { $0.id == id }) {
+                // The adopted note may no longer match the active filter — a
+                // rewrite that changes its text is exactly how this path is
+                // reached — and an editor on a row the filter hides is one the
+                // user can neither see nor escape.
+                uiState.query = ""
+                reopenEditor(id: id, keeping: text)
+            } else {
+                rescueOrphanedEdit(text)
+            }
+        case .applied, .unchanged:
+            pendingEdit = nil
+            editingID = nil
+            focus = .list
+        }
     }
+
+    private func reopenEditor(id: UUID, keeping text: String) {
+        pendingEdit = (id, text)
+        editingID = id
+        focus = .editor
+    }
+
+    /// Moves an edit into the composer when the note it belonged to is gone,
+    /// rather than closing the editor over it. The text is the one thing here
+    /// that cannot be recovered from disk.
+    ///
+    /// Re-toasts over the adoption message `outcome(of:)` already posted: that
+    /// one says "try again", which is only good advice where the note still
+    /// exists. Posted here rather than passed in, because which of the two is
+    /// true is not known until the note has been looked for.
+    private func rescueOrphanedEdit(_ text: String) {
+        pendingEdit = nil
+        editingID = nil
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            uiState.showToast(Self.orphanedEditMessage, severity: .refusal)
+            focus = .list
+            return
+        }
+        // Blank line, matching how a merge joins notes: `add` never splits on
+        // newlines, so a half-typed draft and the rescued edit become one note
+        // either way — a paragraph break at least makes the seam visible.
+        let appended = !draft.isEmpty
+        draft = draft.isEmpty ? text : draft + "\n\n" + text
+        uiState.query = ""
+        focus = .quickAdd
+        uiState.showToast(
+            appended ? Self.orphanedEditAppendedMessage : Self.orphanedEditMessage,
+            severity: .refusal
+        )
+    }
+
+    /// The edited note is gone from the adopted document, so the text has been
+    /// put where the user can still send it. Named surfaces, not "try again":
+    /// there is nothing left to retry the edit against.
+    private static let orphanedEditMessage = "That note is gone — your edit moved to the new-note field"
+    private static let orphanedEditAppendedMessage = "That note is gone — your edit was added to your draft"
 }
 
 /// Tint lives here rather than beside the symbol in Core, which has no
