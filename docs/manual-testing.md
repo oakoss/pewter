@@ -690,16 +690,19 @@ an AX answer delivers plain text that passes through untouched.
         become one note on Return, since
         the composer never splits on newlines; the blank line is what makes
         the seam visible enough to split by hand
-- [ ] Undo and redo under an adoption say something different on purpose.
-      Build both stacks first with the two-delete/one-undo setup above —
-      testing only one stack would leave a stale redo entry free to replay.
-      With the panel open, rewrite the file externally, then press Cmd+Z →
-      the toast reads "Your notes changed on disk — undo history was cleared",
-      not "try again", and no deleted note reappears. Then press Cmd+Shift+Z
-      → nothing from before the rewrite replays either. That second press
-      gets the ordinary nothing-to-do beep rather than a second toast: the
-      first press drained the adoption, so by now this is simply an empty
-      history, which is what it should feel like
+- [ ] An adoption clears both history stacks, so nothing from before an
+      external rewrite may ever replay. Build both stacks first with the
+      two-delete/one-undo setup above — checking only one would leave a stale
+      redo entry free to come back. With the panel open, rewrite the file
+      externally, then press Cmd+Z and Cmd+Shift+Z. Neither may resurrect a
+      note from before the rewrite; that is the whole assertion here.
+      Whether you get the "Your notes changed on disk — undo history was
+      cleared" toast or the ordinary nothing-to-do beep is a race and both
+      are correct: the toast belongs to the case where the keypress's own
+      retry discovers the rewrite, and with the panel open the watcher
+      usually adopts first, which leaves simply an empty history. To see the
+      toast deliberately, make the change where the watcher can't see it —
+      the same trick the `chmod` items above rely on
 - [ ] With that same unreadable file, select text in another app and
       double-tap Shift → the HUD reads "Can't read your notes file — check its
       permissions", rather than appearing to capture. The matching sound plays
