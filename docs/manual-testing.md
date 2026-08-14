@@ -700,9 +700,12 @@ an AX answer delivers plain text that passes through untouched.
       cleared" toast or the ordinary nothing-to-do beep is a race and both
       are correct: the toast belongs to the case where the keypress's own
       retry discovers the rewrite, and with the panel open the watcher
-      usually adopts first, which leaves simply an empty history. To see the
-      toast deliberately, make the change where the watcher can't see it —
-      the same trick the `chmod` items above rely on
+      usually adopts first, which leaves simply an empty history. Don't try
+      to force the toast with the `chmod` trick from the items above — an
+      unreadable file reconciles to blocked, which is a refusal and never an
+      adoption. That branch has no reliable trigger by hand; the store's
+      side of it is covered by `retryReportsWhetherItReplacedTheDocument`,
+      and the panel's wiring onto it is knowingly uncovered
 - [ ] With that same unreadable file, select text in another app and
       double-tap Shift → the HUD reads "Can't read your notes file — check its
       permissions", rather than appearing to capture. The matching sound plays
