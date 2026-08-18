@@ -4,6 +4,15 @@ Capture and permissions can't run in CI (no Accessibility grant on runners).
 Run through this before release, and after any change to `App/Sources/Capture/`
 or the status item / panel / window layer.
 
+`mise run uitest` (XCUITest, `App/UITests/`, local only) automates a first
+slice of the panel items: quick-add reaching the list and the notes file,
+an empty submit adding nothing, Cmd+W from the composer and the search
+field, search narrowing plus the filter/hide rungs of the Esc ladder, and
+the status-item toggle. That last test skips itself when a menu-bar manager
+(Bartender, Ice) parks the icon offscreen — the click stays manual on such
+machines. A green run checks those cases; everything else below is still
+by hand.
+
 Panel-state items don't have to be judged by eye. With the panel open,
 `swift tools/axdump.swift --grep panel.` prints every element the panel
 exposes, keyed by the identifiers in `PanelAccessibilityID` — so "the banner

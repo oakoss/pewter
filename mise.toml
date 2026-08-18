@@ -50,6 +50,20 @@ alias = "t"
 description = "Core package unit tests"
 run = "swift test --package-path Core"
 
+[tasks.uitest]
+description = "App UI tests (XCUITest; local only — the runner needs an Accessibility grant)"
+depends = ["gen"]
+# The tests launch their own instance; a live one from `mise run run`
+# already owns the status item.
+run = [
+  "killall Pewter 2>/dev/null || true",
+  # SIGTERM is asynchronous; a survivor still owns the status item.
+  "for _ in 1 2 3 4 5; do pgrep -qx Pewter || break; sleep 0.2; done",
+  "pgrep -qx Pewter && killall -9 Pewter 2>/dev/null || true",
+  'sleep 0.2; pgrep -qx Pewter && { echo "Pewter still running after killall -9" >&2; exit 1; } || true',
+  'eval xcodebuild -project Pewter.xcodeproj -scheme Pewter -configuration Debug -derivedDataPath build -destination "platform=macOS" "$SIGNING" "$XCODE_SETTINGS" test',
+]
+
 [tasks.run]
 description = "Build and (re)launch the app"
 depends = ["build"]

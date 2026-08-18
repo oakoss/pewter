@@ -1,4 +1,5 @@
 import AppKit
+import os
 import PewterCore
 import SwiftUI
 
@@ -19,9 +20,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let uiState = PanelUIState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // UI-test hook. Argument domain only — a persisted default must not
+        // relocate real notes; a bad value traps because the fallback IS them.
+        let argumentDomain = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        let notesURL: URL
+        if let override = argumentDomain["PewterNotesFile"] {
+            guard let path = override as? String, path.hasPrefix("/") else {
+                fatalError("PewterNotesFile must be an absolute path, got: \(override)")
+            }
+            notesURL = URL(filePath: path)
+            Logger.storage.notice("notes file overridden by launch argument: \(notesURL.path, privacy: .private)")
+        } else {
+            notesURL = FileStorage.defaultURL()
+        }
         // Kept alive by the store, which holds it strongly; the reveal command
         // below captures it for its URL.
-        let storage = FileStorage(fileURL: FileStorage.defaultURL())
+        let storage = FileStorage(fileURL: notesURL)
         let store = ListStore.loadFrom(storage: storage)
         self.store = store
 
@@ -162,6 +176,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         toastArmingFailures(hotKeyCoordinator.syncTriggers())
         onboarding.showAtLaunchIfNeeded()
+
+        // UI-test hook: menu-bar managers (Bartender) park the status item
+        // offscreen, so tests can't reach the panel through a click. Same
+        // path as the panel hotkey, minus the toggle.
+        if (argumentDomain["PewterShowPanelAtLaunch"] as? String).map({ ($0 as NSString).boolValue }) == true {
+            panelController.show(relativeTo: statusItemController.button, onActiveScreen: true)
+        }
     }
 
     /// Launch-time arming is the only toast path — everywhere else a
