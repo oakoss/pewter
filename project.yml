@@ -32,7 +32,6 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        TEST_TARGET_NAME: Pewter
 
   Pewter:
     type: application
