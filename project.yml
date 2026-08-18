@@ -19,6 +19,21 @@ settings:
     CODE_SIGN_IDENTITY: "-"
 
 targets:
+  PewterUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - App/UITests
+      # Compiled into both targets so an identifier rename breaks this
+      # build instead of silently orphaning the queries.
+      - App/Sources/Panel/PanelAccessibilityID.swift
+    dependencies:
+      - target: Pewter
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Pewter
+
   Pewter:
     type: application
     platform: macOS
@@ -57,5 +72,10 @@ schemes:
     build:
       targets:
         Pewter: all
+        PewterUITests: [test]
     run:
       config: Debug
+    test:
+      config: Debug
+      targets:
+        - PewterUITests

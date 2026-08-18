@@ -8,6 +8,7 @@ Single source of agent instructions for this repo; `CLAUDE.md` imports it.
 mise run gen      # regenerate Pewter.xcodeproj from project.yml (xcodegen)
 mise run build    # build the app (pass-through signing via mise.local.toml)
 mise run test     # Core unit tests: swift test --package-path Core
+mise run uitest   # App UI tests (XCUITest; local only, never CI)
 mise run format   # swiftformat + markdownlint --fix
 mise run lint     # swiftformat, markdownlint, actionlint, zizmor, yamllint
 mise run ci       # lint + test + build in parallel (pre-push check)
@@ -57,7 +58,9 @@ green. Splitting them means a body edit re-runs only the cheap check and
   and timers, `DispatchQueue.main.async` (FIFO) over unstructured `Task` when
   event order matters.
 - New logic goes in `Core/` with tests when it has no AppKit dependency;
-  UI/window behavior is covered by `docs/manual-testing.md` instead.
+  UI/window behavior is covered by `docs/manual-testing.md`, with a
+  deterministic panel slice automated in `App/UITests/` (`mise run uitest`,
+  local only).
 - Log privacy: Copy Diagnostics reads our own log store, where
   default-privacy interpolations render verbatim — mark anything that can
   carry note or clipboard content `privacy: .private`.
