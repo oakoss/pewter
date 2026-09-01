@@ -1,20 +1,20 @@
 [tools]
-swiftformat = { version = "0.62.1", no_app = true, rename_exe = "swiftformat" }
+swiftformat = { version = "0.63.0", no_app = true, rename_exe = "swiftformat" }
 xcodegen = "2.46.0"
-lefthook = "2.1.10"
+lefthook = "2.1.12"
 actionlint = "1.7.12"
 # actionlint shells out to shellcheck for `run:` blocks and silently skips
 # that half when the binary is absent — proven by running it with and without
 # shellcheck on PATH. Unpinned, it worked only where Homebrew happened to
 # provide it, never on the CI runner.
 shellcheck = "0.11.0"
-zizmor = "1.28.0"
+zizmor = "1.30.0"
 yamllint = "1.38.0"
 # node backs the npm: tools below; without it a fresh machine can't install them
-node = "24.18.1"
+node = "24.20.0"
 "npm:markdownlint-cli2" = "0.23.2"
-"npm:commitlint" = "21.2.1"
-"npm:czg" = "1.13.1"
+"npm:commitlint" = "21.2.2"
+"npm:czg" = "1.14.0"
 
 # Optional signing override for capture-pipeline work (see CONTRIBUTING.md):
 # set SIGNING in untracked mise.local.toml, e.g.

@@ -42,14 +42,14 @@ jobs:
       # only the app build — tools built from source during the trace would
       # be extracted into the database alongside Pewter's own code.
       - name: Install tools
-        uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4.2.3
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           # This job needs nothing else; the full toolchain would be dead
           # weight inside the one job holding security-events: write.
           install_args: xcodegen
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           languages: swift
           build-mode: manual
@@ -65,6 +65,6 @@ jobs:
         run: mise run build
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4.37.4
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           category: "/language:swift"
